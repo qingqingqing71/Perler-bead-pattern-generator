@@ -1129,9 +1129,8 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       const srcImageData = srcCtx.getImageData(0, 0, imgWidth, imgHeight);
       const srcData = srcImageData.data;
 
-      // Create result canvas with high resolution for A4 printing (3000x3000)
-      // This ensures clear text and lines when printed on A4 paper at 300DPI
-      const gridSize = 3000;
+      // Create result canvas with same size as grid (800x800)
+      const gridSize = 800;
       const cellSize = gridSize / gridCount;
       
       const resultCanvas = document.createElement('canvas');
@@ -1333,7 +1332,7 @@ async function generateBeadPattern(
         return;
       }
 
-      // Set canvas size to image size (should be 3000x3000 from pixelateImage)
+      // Set canvas size to image size (should be 800x800 from pixelateImage)
       canvas.width = img.width;
       canvas.height = img.height;
       
@@ -1343,17 +1342,16 @@ async function generateBeadPattern(
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      // Calculate pixel size - the pixelated image is 3000x3000, divided by grid count
-      const canvasSize = 3000; // Fixed size from pixelateImage (high resolution for A4 printing)
+      // Calculate pixel size - the pixelated image is 800x800, divided by grid count
+      const canvasSize = 800; // Fixed size from pixelateImage
       const pixelSize = canvasSize / gridSize;
       
       // Color tracking for legend
       const colorMap = new Map<string, MardColor>();
 
-      // Calculate font size based on pixel size
-      // Font size should be large enough to be readable when printed on A4 paper
-      // MARD codes are typically 2-4 characters (e.g., A1, B23, Z10)
-      const fontSize = Math.max(10, Math.floor(pixelSize * 0.4));
+      // Calculate font size based on pixel size - text should fit within the grid cell
+      // Use smaller font for smaller grids to ensure text doesn't overflow
+      const fontSize = Math.max(5, Math.floor(pixelSize * 0.35));
       
       // Store blocks info for drawing text later
       const blocksInfo: Array<{
