@@ -1011,7 +1011,7 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       canvas.width = width;
       canvas.height = height;
 
-      // Draw original image
+      // Draw original image (grid result)
       ctx.drawImage(img, 0, 0, width, height);
       
       // Get image data
@@ -1030,19 +1030,14 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       resultCanvas.width = width;
       resultCanvas.height = height;
 
-      // Fill with white background
-      resultCtx.fillStyle = '#ffffff';
-      resultCtx.fillRect(0, 0, width, height);
-
       // Calculate pixel size: each pixel corresponds to one grid cell
-      // For a grid image (800x800), cellSize = 800 / pixelSize
       const actualPixelSize = Math.floor(width / pixelSize);
 
       // Pixelate: iterate through each "pixel" block
       for (let y = 0; y < height; y += actualPixelSize) {
         for (let x = 0; x < width; x += actualPixelSize) {
           // Calculate the average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let totalR = 0, totalG = 0, totalB = 0;
           let pixelCount = 0;
           
           const blockWidth = Math.min(actualPixelSize, width - x);
@@ -1054,7 +1049,6 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
               totalR += data[idx];
               totalG += data[idx + 1];
               totalB += data[idx + 2];
-              totalA += data[idx + 3];
               pixelCount++;
             }
           }
@@ -1063,19 +1057,14 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
           const avgR = Math.round(totalR / pixelCount);
           const avgG = Math.round(totalG / pixelCount);
           const avgB = Math.round(totalB / pixelCount);
-          const avgA = Math.round(totalA / pixelCount);
 
-          // If mostly transparent, fill with white; otherwise use the average color
-          if (avgA < 128) {
-            resultCtx.fillStyle = '#ffffff';
-          } else {
-            resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-          }
+          // Draw the pixel block with average color
+          resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
           resultCtx.fillRect(x, y, blockWidth, blockHeight);
         }
       }
 
-      // Draw grid lines on top (same style as grid result)
+      // Draw fine grid lines on top
       const cellSize = width / pixelSize;
       
       resultCtx.strokeStyle = '#d1d5db';
@@ -1093,27 +1082,6 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
         resultCtx.moveTo(0, pos);
         resultCtx.lineTo(width, pos);
         resultCtx.stroke();
-      }
-
-      // Draw thicker lines every 5 cells
-      if (pixelSize >= 10) {
-        resultCtx.strokeStyle = '#9ca3af';
-        resultCtx.lineWidth = 2;
-        
-        const majorInterval = 5;
-        for (let i = 0; i <= pixelSize; i += majorInterval) {
-          const pos = i * cellSize;
-          
-          resultCtx.beginPath();
-          resultCtx.moveTo(pos, 0);
-          resultCtx.lineTo(pos, height);
-          resultCtx.stroke();
-          
-          resultCtx.beginPath();
-          resultCtx.moveTo(0, pos);
-          resultCtx.lineTo(width, pos);
-          resultCtx.stroke();
-        }
       }
 
       resolve(resultCanvas.toDataURL('image/png'));
