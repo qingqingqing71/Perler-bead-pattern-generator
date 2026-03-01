@@ -849,7 +849,6 @@ export default function Home() {
                           style={{ backgroundColor: color.hex }}
                         />
                         <span className="text-sm font-medium">{color.code}</span>
-                        <span className="text-xs text-slate-500">{color.hex}</span>
                       </div>
                     ))}
                   </div>
@@ -1348,6 +1347,18 @@ async function generateBeadPattern(
       // Color tracking for legend
       const colorMap = new Map<string, MardColor>();
 
+      // Calculate font size based on pixel size
+      const fontSize = Math.max(6, Math.floor(pixelSize / 4));
+      
+      // Store blocks info for drawing text later
+      const blocksInfo: Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        color: MardColor;
+      }> = [];
+
       // Process each pixel block
       for (let gridY = 0; gridY < gridSize; gridY++) {
         for (let gridX = 0; gridX < gridSize; gridX++) {
@@ -1388,8 +1399,33 @@ async function generateBeadPattern(
             // Fill the block with MARD color
             ctx.fillStyle = nearestColor.hex;
             ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+            
+            // Store block info for text drawing
+            blocksInfo.push({
+              x: x1,
+              y: y1,
+              width: x2 - x1,
+              height: y2 - y1,
+              color: nearestColor
+            });
           }
         }
+      }
+
+      // Draw MARD color codes on each block
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      for (const block of blocksInfo) {
+        // Determine text color based on background brightness
+        const rgb = hexToRgb(block.color.hex);
+        const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+        
+        ctx.font = `bold ${fontSize}px Arial`;
+        const centerX = block.x + block.width / 2;
+        const centerY = block.y + block.height / 2;
+        ctx.fillText(block.color.code, centerX, centerY);
       }
 
       // Draw grid lines on top
@@ -1424,4 +1460,14 @@ async function generateBeadPattern(
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = imageUrl;
   });
+}
+
+// Helper function to convert hex to RGB
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : { r: 0, g: 0, b: 0 };
 }
