@@ -244,14 +244,11 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Remove black background from anime image
-        const cleanedAnimeImage = await removeBlackBackground(data.imageUrl);
-        
-        setAnimeImage(cleanedAnimeImage);
+        setAnimeImage(data.imageUrl);
         setUseAnimeImage(true);
         
         // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(cleanedAnimeImage, gridSize);
+        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
@@ -311,14 +308,13 @@ export default function Home() {
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    const sourceImage = animeImage || removedBgImage;
-    if (!sourceImage || isPixelating) return;
+    if (!finalImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(sourceImage, gridSize);
+      const pixelated = await pixelateImage(finalImage, gridSize);
       setPixelatedImage(pixelated);
     } catch (err) {
       console.error('Pixelate error:', err);
@@ -326,7 +322,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [removedBgImage, animeImage, gridSize, isPixelating]);
+  }, [finalImage, gridSize, isPixelating]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -344,11 +340,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+    link.download = `pixelated-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, gridSize, animeImage]);
+  }, [pixelatedImage, gridSize, useAnimeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -542,7 +538,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || (!removedBgImage && !animeImage)}
+                    disabled={isPixelating || !finalImage}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -720,7 +716,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
+                    ({gridSize}×{gridSize} 像素{useAnimeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
                 <Button
@@ -735,17 +731,6 @@ export default function Home() {
 
               <div 
                 className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
-                style={{
-                  backgroundImage: `
-                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                  `,
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                  backgroundColor: '#fff',
-                }}
               >
                 <img
                   src={pixelatedImage}
@@ -1042,8 +1027,9 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       resultCanvas.width = width;
       resultCanvas.height = height;
 
-      // Clear with transparent background
-      resultCtx.clearRect(0, 0, width, height);
+      // Fill with white background
+      resultCtx.fillStyle = '#ffffff';
+      resultCtx.fillRect(0, 0, width, height);
 
       // Calculate pixel size: each pixel corresponds to one grid cell
       // For a grid image (800x800), cellSize = 800 / pixelSize
