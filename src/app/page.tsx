@@ -244,111 +244,13 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Get the segmenter for removing background from anime image
-        let segmenter = modelRef.current.segmenter;
-        if (!segmenter) {
-          const tf = await import('@tensorflow/tfjs');
-          const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-          await tf.ready();
-          const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-          segmenter = await bodySegmentation.createSegmenter(model, {
-            runtime: 'tfjs',
-            modelType: 'general',
-          });
-          modelRef.current = { segmenter, loaded: true };
-        }
-
-        // Load anime image and remove its background
-        const animeImg = new Image();
-        animeImg.crossOrigin = 'anonymous';
-        
-        const animeRemovedBg = await new Promise<string>((resolve, reject) => {
-          animeImg.onload = async () => {
-            try {
-              const animeWidth = animeImg.width;
-              const animeHeight = animeImg.height;
-              
-              // Segment the anime image
-              const segmentation = await segmenter!.segmentPeople(animeImg, {
-                flipHorizontal: false,
-                multiSegment: false,
-              });
-              
-              if (!segmentation || segmentation.length === 0) {
-                // If segmentation fails, just use the original anime image
-                resolve(data.imageUrl);
-                return;
-              }
-              
-              const mask = await segmentation[0].mask.toImageData();
-              
-              // Create a canvas with the anime image
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
-              if (!ctx) {
-                resolve(data.imageUrl);
-                return;
-              }
-              
-              canvas.width = animeWidth;
-              canvas.height = animeHeight;
-              ctx.drawImage(animeImg, 0, 0, animeWidth, animeHeight);
-              
-              const imageData = ctx.getImageData(0, 0, animeWidth, animeHeight);
-              const imgData = imageData.data;
-              
-              // Scale mask to match image size
-              const maskCanvas = document.createElement('canvas');
-              const maskCtx = maskCanvas.getContext('2d');
-              if (!maskCtx) {
-                resolve(data.imageUrl);
-                return;
-              }
-              maskCanvas.width = animeWidth;
-              maskCanvas.height = animeHeight;
-              
-              const tempMaskCanvas = document.createElement('canvas');
-              tempMaskCanvas.width = mask.width;
-              tempMaskCanvas.height = mask.height;
-              const tempMaskCtx = tempMaskCanvas.getContext('2d');
-              if (!tempMaskCtx) {
-                resolve(data.imageUrl);
-                return;
-              }
-              tempMaskCtx.putImageData(mask, 0, 0);
-              
-              maskCtx.imageSmoothingEnabled = true;
-              maskCtx.imageSmoothingQuality = 'high';
-              maskCtx.drawImage(tempMaskCanvas, 0, 0, mask.width, mask.height, 0, 0, animeWidth, animeHeight);
-              const scaledMaskData = maskCtx.getImageData(0, 0, animeWidth, animeHeight);
-              const maskData = scaledMaskData.data;
-
-              // Apply mask to remove background
-              for (let i = 0; i < imgData.length; i += 4) {
-                const maskValue = maskData[i];
-                let alpha = Math.min(255, Math.max(0, maskValue));
-                imgData[i + 3] = alpha;
-              }
-
-              ctx.putImageData(imageData, 0, 0);
-              resolve(canvas.toDataURL('image/png'));
-            } catch (err) {
-              console.error('Error removing anime background:', err);
-              resolve(data.imageUrl);
-            }
-          };
-          animeImg.onerror = () => {
-            console.error('Failed to load anime image');
-            resolve(data.imageUrl);
-          };
-          animeImg.src = data.imageUrl;
-        });
-
-        setAnimeImage(animeRemovedBg);
+        // Directly use the anime image without re-segmentation
+        // This maintains consistency with the original cutout
+        setAnimeImage(data.imageUrl);
         setUseAnimeImage(true);
         
-        // Regenerate grid with anime image (already has transparent background)
-        const composedImage = await composeWithGrid(animeRemovedBg, gridSize);
+        // Regenerate grid with anime image
+        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
@@ -406,16 +308,16 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
 
-  // Pixelate image
+  // Pixelate image - pixelate the grid result (finalImage)
   const handlePixelate = useCallback(async () => {
-    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
-    if (!sourceImage || isPixelating) return;
+    // Use the final grid image for pixelation
+    if (!finalImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(sourceImage, gridSize);
+      const pixelated = await pixelateImage(finalImage, gridSize);
       setPixelatedImage(pixelated);
     } catch (err) {
       console.error('Pixelate error:', err);
@@ -423,7 +325,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
+  }, [finalImage, gridSize, isPixelating]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -639,7 +541,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || !removedBgImage}
+                    disabled={isPixelating || !finalImage}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -832,17 +734,6 @@ export default function Home() {
 
               <div 
                 className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
-                style={{
-                  backgroundImage: `
-                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                  `,
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                  backgroundColor: '#fff',
-                }}
               >
                 <img
                   src={pixelatedImage}
@@ -1139,19 +1030,19 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       resultCanvas.width = width;
       resultCanvas.height = height;
 
-      // Clear with transparent background
-      resultCtx.clearRect(0, 0, width, height);
+      // Fill with white background (same as grid image)
+      resultCtx.fillStyle = '#ffffff';
+      resultCtx.fillRect(0, 0, width, height);
 
-      // Calculate pixel size based on the image dimensions
-      // Use the smaller dimension to determine the actual pixel size
-      const smallerDimension = Math.min(width, height);
-      const actualPixelSize = Math.floor(smallerDimension / pixelSize);
+      // Calculate pixel size: each pixel corresponds to one grid cell
+      // For a grid image (800x800), cellSize = 800 / pixelSize
+      const actualPixelSize = Math.floor(width / pixelSize);
 
       // Pixelate: iterate through each "pixel" block
       for (let y = 0; y < height; y += actualPixelSize) {
         for (let x = 0; x < width; x += actualPixelSize) {
           // Calculate the average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let totalR = 0, totalG = 0, totalB = 0;
           let pixelCount = 0;
           
           const blockWidth = Math.min(actualPixelSize, width - x);
@@ -1163,7 +1054,6 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
               totalR += data[idx];
               totalG += data[idx + 1];
               totalB += data[idx + 2];
-              totalA += data[idx + 3];
               pixelCount++;
             }
           }
@@ -1172,13 +1062,10 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
           const avgR = Math.round(totalR / pixelCount);
           const avgG = Math.round(totalG / pixelCount);
           const avgB = Math.round(totalB / pixelCount);
-          const avgA = Math.round(totalA / pixelCount);
 
-          // Only draw if not fully transparent
-          if (avgA > 0) {
-            resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-            resultCtx.fillRect(x, y, blockWidth, blockHeight);
-          }
+          // Draw the pixel block
+          resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+          resultCtx.fillRect(x, y, blockWidth, blockHeight);
         }
       }
 
