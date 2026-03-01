@@ -637,9 +637,8 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
         return;
       }
 
-      // Calculate canvas size based on grid count
-      // Each grid cell is the same size, total grid is gridSize x gridSize pixels
-      const gridSize = 800; // Fixed canvas size in pixels
+      // Fixed canvas size in pixels
+      const gridSize = 800;
       const cellSize = gridSize / gridCount;
 
       const width = gridSize;
@@ -648,11 +647,36 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
       canvas.width = width;
       canvas.height = height;
 
-      // Draw white background
+      // Step 1: Draw white background
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
-      // Draw grid lines
+      // Step 2: Calculate image size (0.9 of grid size, maintaining aspect ratio)
+      const maxImageSize = gridSize * 0.9;
+      let imgWidth = img.width;
+      let imgHeight = img.height;
+      
+      // Scale image to fit within 0.9 of grid size
+      if (imgWidth > imgHeight) {
+        if (imgWidth > maxImageSize) {
+          imgHeight = (imgHeight / imgWidth) * maxImageSize;
+          imgWidth = maxImageSize;
+        }
+      } else {
+        if (imgHeight > maxImageSize) {
+          imgWidth = (imgWidth / imgHeight) * maxImageSize;
+          imgHeight = maxImageSize;
+        }
+      }
+
+      // Center the image
+      const x = (width - imgWidth) / 2;
+      const y = (height - imgHeight) / 2;
+      
+      // Draw the image
+      ctx.drawImage(img, x, y, imgWidth, imgHeight);
+
+      // Step 3: Draw grid lines ON TOP of the image
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
@@ -695,30 +719,6 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
           ctx.stroke();
         }
       }
-
-      // Calculate image size (0.9 of grid size, maintaining aspect ratio)
-      const maxImageSize = gridSize * 0.9;
-      let imgWidth = img.width;
-      let imgHeight = img.height;
-      
-      // Scale image to fit within 0.9 of grid size
-      if (imgWidth > imgHeight) {
-        if (imgWidth > maxImageSize) {
-          imgHeight = (imgHeight / imgWidth) * maxImageSize;
-          imgWidth = maxImageSize;
-        }
-      } else {
-        if (imgHeight > maxImageSize) {
-          imgWidth = (imgWidth / imgHeight) * maxImageSize;
-          imgHeight = maxImageSize;
-        }
-      }
-
-      // Center the image
-      const x = (width - imgWidth) / 2;
-      const y = (height - imgHeight) / 2;
-      
-      ctx.drawImage(img, x, y, imgWidth, imgHeight);
 
       resolve(canvas.toDataURL('image/png'));
     };
