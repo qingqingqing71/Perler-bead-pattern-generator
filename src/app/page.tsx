@@ -54,10 +54,13 @@ export default function Home() {
       setProgress(20);
 
       // Dynamically import the library to ensure it's only loaded on the client
-      const { removeBackground } = await import('@imgly/background-removal');
+      // The library uses default export
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bgRemovalModule = await import('@imgly/background-removal') as any;
+      const removeBackgroundFn = bgRemovalModule.default;
 
-      const blob = await removeBackground(file, {
-        progress: (key, current, total) => {
+      const blob = await removeBackgroundFn(file, {
+        progress: (key: string, current: number, total: number) => {
           if (total > 0) {
             const percent = Math.round((current / total) * 60) + 20;
             setProgress(Math.min(percent, 80));
