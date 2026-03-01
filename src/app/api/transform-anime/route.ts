@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // Use image-to-image transformation with Q-version manga style prompt
+    // Use image-to-image transformation with Q-version cute manga style prompt
     const response = await client.generate({
-      prompt: 'Convert this person to Q-version chibi manga style, cute chibi character, super deformed SD style, big head small body, kawaii anime, simple round features, adorable cartoon style, soft pastel colors, clean vector lines, keep the same pose and composition',
+      prompt: 'Convert this person to Q-version cute manga style, chibi anime character, kawaii illustration, adorable cartoon style, soft pastel colors, clean vector lines, keep the same body proportions and pose and composition, same body size as original',
       image: imageUrl,
       size: '2K',
     });
