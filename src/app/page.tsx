@@ -15,6 +15,7 @@ import {
   Grid3X3,
   Sparkles,
   RefreshCw,
+  Grid2X2,
 } from 'lucide-react';
 
 type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
@@ -51,6 +52,8 @@ export default function Home() {
   const [gridSize, setGridSize] = useState(25);
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
+  const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
+  const [isPixelating, setIsPixelating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -403,6 +406,25 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
 
+  // Pixelate image
+  const handlePixelate = useCallback(async () => {
+    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
+    if (!sourceImage || isPixelating) return;
+
+    setIsPixelating(true);
+    setError(null);
+
+    try {
+      const pixelated = await pixelateImage(sourceImage, gridSize);
+      setPixelatedImage(pixelated);
+    } catch (err) {
+      console.error('Pixelate error:', err);
+      setError(err instanceof Error ? err.message : '像素化处理失败');
+    } finally {
+      setIsPixelating(false);
+    }
+  }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
+
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
 
@@ -414,11 +436,23 @@ export default function Home() {
     document.body.removeChild(link);
   }, [finalImage, gridSize, useAnimeImage]);
 
+  const handleDownloadPixelated = useCallback(() => {
+    if (!pixelatedImage) return;
+
+    const link = document.createElement('a');
+    link.href = pixelatedImage;
+    link.download = `pixelated-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [pixelatedImage, gridSize, useAnimeImage]);
+
   const handleReset = useCallback(() => {
     setOriginalImage(null);
     setRemovedBgImage(null);
     setAnimeImage(null);
     setFinalImage(null);
+    setPixelatedImage(null);
     setUseAnimeImage(false);
     setStep('idle');
     setProgress(0);
@@ -602,6 +636,31 @@ export default function Home() {
                     )}
                   </Button>
 
+                  {/* Pixelate Button */}
+                  <Button
+                    onClick={handlePixelate}
+                    disabled={isPixelating || !removedBgImage}
+                    variant="outline"
+                    className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
+                  >
+                    {isPixelating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在像素化处理...
+                      </>
+                    ) : pixelatedImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成像素化
+                      </>
+                    ) : (
+                      <>
+                        <Grid2X2 className="w-4 h-4 mr-2" />
+                        像素化处理
+                      </>
+                    )}
+                  </Button>
+
                   {/* Download and Reset */}
                   <div className="flex gap-3">
                     <Button
@@ -609,7 +668,7 @@ export default function Home() {
                       className="flex-1 bg-blue-600 hover:bg-blue-700"
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      下载结果
+                      下载网格
                     </Button>
                     <Button
                       variant="outline"
@@ -748,6 +807,52 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Pixelated Result Section */}
+        {pixelatedImage && (
+          <Card className="mt-6 overflow-hidden">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Grid2X2 className="w-5 h-5 text-green-600" />
+                  像素化结果
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({gridSize}×{gridSize} 像素{useAnimeImage ? ', 动漫风格' : ''})
+                  </span>
+                </h2>
+                <Button
+                  onClick={handleDownloadPixelated}
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  下载像素化
+                </Button>
+              </div>
+
+              <div 
+                className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
+                style={{
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                }}
+              >
+                <img
+                  src={pixelatedImage}
+                  alt="像素化结果"
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Instructions */}
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
@@ -987,6 +1092,97 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       }
 
       resolve(canvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+async function pixelateImage(imageUrl: string, pixelSize: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      // Create a canvas with the same size as the image
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      const width = img.width;
+      const height = img.height;
+      
+      canvas.width = width;
+      canvas.height = height;
+
+      // Draw original image
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Get image data
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+
+      // Create a new canvas for the pixelated result
+      const resultCanvas = document.createElement('canvas');
+      const resultCtx = resultCanvas.getContext('2d');
+      
+      if (!resultCtx) {
+        reject(new Error('无法创建结果画布'));
+        return;
+      }
+
+      resultCanvas.width = width;
+      resultCanvas.height = height;
+
+      // Clear with transparent background
+      resultCtx.clearRect(0, 0, width, height);
+
+      // Calculate pixel size based on the image dimensions
+      // Use the smaller dimension to determine the actual pixel size
+      const smallerDimension = Math.min(width, height);
+      const actualPixelSize = Math.floor(smallerDimension / pixelSize);
+
+      // Pixelate: iterate through each "pixel" block
+      for (let y = 0; y < height; y += actualPixelSize) {
+        for (let x = 0; x < width; x += actualPixelSize) {
+          // Calculate the average color for this pixel block
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+          
+          const blockWidth = Math.min(actualPixelSize, width - x);
+          const blockHeight = Math.min(actualPixelSize, height - y);
+
+          for (let by = 0; by < blockHeight; by++) {
+            for (let bx = 0; bx < blockWidth; bx++) {
+              const idx = ((y + by) * width + (x + bx)) * 4;
+              totalR += data[idx];
+              totalG += data[idx + 1];
+              totalB += data[idx + 2];
+              totalA += data[idx + 3];
+              pixelCount++;
+            }
+          }
+
+          // Calculate average
+          const avgR = Math.round(totalR / pixelCount);
+          const avgG = Math.round(totalG / pixelCount);
+          const avgB = Math.round(totalB / pixelCount);
+          const avgA = Math.round(totalA / pixelCount);
+
+          // Only draw if not fully transparent
+          if (avgA > 0) {
+            resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+            resultCtx.fillRect(x, y, blockWidth, blockHeight);
+          }
+        }
+      }
+
+      resolve(resultCanvas.toDataURL('image/png'));
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
