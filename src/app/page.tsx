@@ -1065,8 +1065,12 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
           const avgB = Math.round(totalB / pixelCount);
           const avgA = Math.round(totalA / pixelCount);
 
-          // Draw the pixel block
-          resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+          // Draw the pixel block - use white for transparent areas
+          if (avgA < 128) {
+            resultCtx.fillStyle = '#ffffff';
+          } else {
+            resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+          }
           resultCtx.fillRect(x, y, blockWidth, blockHeight);
         }
       }
