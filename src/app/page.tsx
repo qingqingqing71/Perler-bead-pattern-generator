@@ -19,7 +19,7 @@ type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | '
 const STEP_LABELS: Record<ProcessingStep, string> = {
   idle: '准备就绪',
   uploading: '正在上传图片...',
-  'loading-model': '正在加载 AI 模型（首次需要下载）...',
+  'loading-model': '正在加载 AI 模型...',
   'removing-bg': '正在抠图...',
   'generating-grid': '正在生成网格纸...',
   done: '处理完成',
@@ -49,12 +49,11 @@ export default function Home() {
         // Wait for TF to be ready
         await tf.ready();
         
-        // Create segmenter with BodyPix model
-        const model = bodySegmentation.SupportedModels.BodyPix;
+        // Use MediaPipe Selfie Segmentation model - more accurate than BodyPix
+        const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
         const segmenter = await bodySegmentation.createSegmenter(model, {
-          architecture: 'MobileNetV1',
-          outputStride: 16,
-          multiplier: 0.75,
+          runtime: 'tfjs',
+          modelType: 'general',
         });
         
         modelRef.current = { segmenter, loaded: true };
@@ -62,11 +61,52 @@ export default function Home() {
         console.log('Model loaded successfully');
       } catch (err) {
         console.error('Failed to load model:', err);
+        // Fallback to BodyPix if MediaPipe fails
+        try {
+          const tf = await import('@tensorflow/tfjs');
+          const bodySegmentation = await import('@tensorflow-models/body-segmentation');
+          
+          await tf.ready();
+          
+          const model = bodySegmentation.SupportedModels.BodyPix;
+          // Use higher quality settings
+          const segmenter = await bodySegmentation.createSegmenter(model, {
+            architecture: 'ResNet50',
+            outputStride: 16,
+            quantBytes: 4,
+          });
+          
+          modelRef.current = { segmenter, loaded: true };
+          setModelLoaded(true);
+          console.log('Fallback BodyPix model loaded');
+        } catch (fallbackErr) {
+          console.error('Fallback also failed:', fallbackErr);
+        }
       }
     };
     
     loadModel();
   }, []);
+
+  // Handle click on upload area
+  const handleUploadClick = useCallback(() => {
+    // Allow upload when idle or done
+    if ((step === 'idle' || step === 'done') && modelLoaded) {
+      // Reset state if clicking when done
+      if (step === 'done') {
+        setOriginalImage(null);
+        setRemovedBgImage(null);
+        setFinalImage(null);
+        setProgress(0);
+        setError(null);
+      }
+      // Reset file input and trigger click
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+        fileInputRef.current.click();
+      }
+    }
+  }, [step, modelLoaded]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -84,61 +124,67 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      // Step 2: Load model if not loaded
+      // Step 2: Ensure model is loaded
       setStep('loading-model');
       setProgress(20);
       
-      if (!modelRef.current.loaded) {
+      let segmenter = modelRef.current.segmenter;
+      
+      if (!segmenter) {
         const tf = await import('@tensorflow/tfjs');
         const bodySegmentation = await import('@tensorflow-models/body-segmentation');
         
         await tf.ready();
         
-        const model = bodySegmentation.SupportedModels.BodyPix;
-        const segmenter = await bodySegmentation.createSegmenter(model, {
-          architecture: 'MobileNetV1',
-          outputStride: 16,
-          multiplier: 0.75,
+        const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
+        segmenter = await bodySegmentation.createSegmenter(model, {
+          runtime: 'tfjs',
+          modelType: 'general',
         });
         
         modelRef.current = { segmenter, loaded: true };
-        setModelLoaded(true);
       }
-      setProgress(40);
+      setProgress(30);
 
       // Step 3: Remove background
       setStep('removing-bg');
-      setProgress(50);
+      setProgress(40);
 
-      const segmenter = modelRef.current.segmenter;
-      if (!segmenter) {
-        throw new Error('模型未加载');
-      }
-
-      // Load image to get segmentation
+      // Load image and run segmentation
       const img = new Image();
       img.crossOrigin = 'anonymous';
       
-      const segmentationResult = await new Promise<{ segmentation: ImageData; originalWidth: number; originalHeight: number }>((resolve, reject) => {
+      const result = await new Promise<string>((resolve, reject) => {
         img.onload = async () => {
           try {
             const originalWidth = img.width;
             const originalHeight = img.height;
             
+            setProgress(50);
+            
             // Run segmentation
-            const segmentation = await segmenter.segmentPeople(img, {
+            const segmentation = await segmenter!.segmentPeople(img, {
               flipHorizontal: false,
               multiSegment: false,
             });
             
             if (!segmentation || segmentation.length === 0) {
-              reject(new Error('无法识别图像中的人物'));
+              reject(new Error('无法识别图像内容，请尝试其他图片'));
               return;
             }
             
-            // Get mask
+            setProgress(70);
+            
+            // Get mask and apply it
             const mask = await segmentation[0].mask.toImageData();
-            resolve({ segmentation: mask, originalWidth, originalHeight });
+            const removedBgDataUrl = await applyBackgroundRemoval(
+              imageDataUrl,
+              mask,
+              originalWidth,
+              originalHeight
+            );
+            
+            resolve(removedBgDataUrl);
           } catch (err) {
             reject(err);
           }
@@ -147,24 +193,14 @@ export default function Home() {
         img.src = imageDataUrl;
       });
 
-      setProgress(70);
-
-      // Step 4: Apply mask to remove background
-      const removedBgDataUrl = await applyBackgroundRemoval(
-        imageDataUrl, 
-        segmentationResult.segmentation,
-        segmentationResult.originalWidth,
-        segmentationResult.originalHeight
-      );
-      
-      setRemovedBgImage(removedBgDataUrl);
+      setRemovedBgImage(result);
       setProgress(85);
 
-      // Step 5: Generate grid and compose
+      // Step 4: Generate grid and compose
       setStep('generating-grid');
       setProgress(90);
 
-      const composedImage = await composeWithGrid(removedBgDataUrl);
+      const composedImage = await composeWithGrid(result);
       setFinalImage(composedImage);
 
       setStep('done');
@@ -199,6 +235,8 @@ export default function Home() {
       fileInputRef.current.value = '';
     }
   }, []);
+
+  const canUpload = modelLoaded && (step === 'idle' || step === 'done');
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -240,9 +278,12 @@ export default function Home() {
 
               {/* Upload Zone */}
               <div
-                onClick={() => fileInputRef.current?.click()}
-                className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
-                  ${step === 'idle' && modelLoaded ? 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20' : 'border-slate-200 dark:border-slate-800'}
+                onClick={handleUploadClick}
+                className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all
+                  ${canUpload 
+                    ? 'cursor-pointer border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20' 
+                    : 'cursor-not-allowed border-slate-200 dark:border-slate-800 opacity-60'
+                  }
                 `}
               >
                 <input
@@ -251,7 +292,6 @@ export default function Home() {
                   accept="image/*"
                   onChange={handleFileSelect}
                   className="hidden"
-                  disabled={step !== 'idle' || !modelLoaded}
                 />
 
                 {originalImage ? (
@@ -261,7 +301,9 @@ export default function Home() {
                       alt="原图"
                       className="max-h-64 mx-auto rounded-lg shadow-md"
                     />
-                    <p className="text-sm text-slate-500">点击重新上传</p>
+                    {step === 'done' && (
+                      <p className="text-sm text-blue-500">点击重新上传</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -269,7 +311,7 @@ export default function Home() {
                       <ImageIcon className="w-8 h-8 text-slate-400" />
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">
-                      点击或拖拽图片到此处
+                      点击上传图片
                     </p>
                     <p className="text-sm text-slate-400">
                       支持 JPG、PNG、WebP 格式
@@ -279,20 +321,24 @@ export default function Home() {
               </div>
 
               {/* Progress */}
-              {step !== 'idle' && (
+              {step !== 'idle' && step !== 'done' && (
                 <div className="mt-6 space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="flex items-center gap-2">
-                      {step === 'done' ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                      )}
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                       {STEP_LABELS[step]}
                     </span>
                     <span className="text-slate-500">{progress}%</span>
                   </div>
                   <Progress value={progress} className="h-2" />
+                </div>
+              )}
+
+              {/* Done Status */}
+              {step === 'done' && (
+                <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-sm">处理完成</span>
                 </div>
               )}
 
@@ -424,7 +470,7 @@ export default function Home() {
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>此工具使用 TensorFlow.js 的 BodyPix 模型，专门针对人物抠图优化。首次使用时需要下载模型（约 5MB），之后会缓存在浏览器中。
+            <strong>提示：</strong>此工具使用 MediaPipe Selfie Segmentation 模型，专门针对人物抠图优化，准确度较高。首次使用需要下载模型，之后会缓存在浏览器中。
           </p>
         </div>
       </div>
@@ -499,18 +545,27 @@ async function applyBackgroundRemoval(
       }
       tempMaskCtx.putImageData(mask, 0, 0);
       
-      // Scale mask to original size
+      // Scale mask to original size with smoothing
+      maskCtx.imageSmoothingEnabled = true;
+      maskCtx.imageSmoothingQuality = 'high';
       maskCtx.drawImage(tempMaskCanvas, 0, 0, mask.width, mask.height, 0, 0, originalWidth, originalHeight);
       const scaledMaskData = maskCtx.getImageData(0, 0, originalWidth, originalHeight);
       const maskData = scaledMaskData.data;
 
-      // Apply mask - set alpha based on mask
+      // Apply mask with smoothing
       for (let i = 0; i < data.length; i += 4) {
         // Use the red channel of the mask as alpha
-        // The mask is typically white (255) for foreground, black (0) for background
-        const maskValue = maskData[i]; // Red channel
-        // Invert: if mask is white (foreground), keep the pixel; if black (background), make transparent
-        data[i + 3] = maskValue; // Set alpha channel
+        // Apply slight smoothing at edges
+        const maskValue = maskData[i];
+        
+        // Smooth transition at edges
+        let alpha = maskValue;
+        if (maskValue > 30 && maskValue < 225) {
+          // Edge pixels - apply smoothing
+          alpha = Math.min(255, Math.max(0, maskValue));
+        }
+        
+        data[i + 3] = alpha;
       }
 
       // Put the modified image data back
