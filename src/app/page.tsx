@@ -23,7 +23,7 @@ type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | '
 const STEP_LABELS: Record<ProcessingStep, string> = {
   idle: '准备就绪',
   uploading: '正在上传图片...',
-  'loading-model': '正在加载 AI 模型...',
+  'loading-model': '正在加载模型...',
   'removing-bg': '正在抠图...',
   'transforming-anime': '正在转换为动漫风格...',
   'generating-grid': '正在生成网格纸...',
@@ -375,22 +375,22 @@ export default function Home() {
           <div className="inline-flex items-center gap-2 mb-4">
             <Scissors className="w-8 h-8 text-blue-600" />
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-              AI 抠图工具
+              智能抠图工具
             </h1>
           </div>
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            上传照片，AI 自动识别并抠出主体，转换为动漫风格，然后贴到空白网格纸上
+            上传照片，自动识别并抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
           {!modelLoaded && (
             <div className="mt-4 inline-flex items-center gap-2 text-amber-600 dark:text-amber-400">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">AI 模型加载中...</span>
+              <span className="text-sm">模型加载中...</span>
             </div>
           )}
           {modelLoaded && (
             <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
               <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm">AI 模型已就绪</span>
+              <span className="text-sm">模型已就绪</span>
             </div>
           )}
         </div>
@@ -773,7 +773,7 @@ export default function Home() {
                 <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
               </div>
               <div>
-                <p className="font-medium">AI 抠图</p>
+                <p className="font-medium">智能抠图</p>
                 <p className="text-sm text-slate-500">自动移除背景</p>
               </div>
             </div>
@@ -801,7 +801,7 @@ export default function Home() {
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
+            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换可能需要几秒钟时间。
           </p>
         </div>
       </div>
