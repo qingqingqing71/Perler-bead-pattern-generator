@@ -1243,7 +1243,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       const cellCountX = Math.round(alignedWidth / cellSize);
       const cellCountY = Math.round(alignedHeight / cellSize);
 
-      // Pixelate the subject area
+      // Pixelate only the subject area (skip transparent regions)
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
           const canvasX = offsetX + gridX * actualPixelSize;
@@ -1276,14 +1276,18 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
             const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
             
-            // Draw pixel block
-            resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-            resultCtx.fillRect(
-              Math.floor(offsetX + gridX * actualPixelSize),
-              Math.floor(offsetY + gridY * actualPixelSize),
-              Math.ceil(actualPixelSize),
-              Math.ceil(actualPixelSize)
-            );
+            // Only draw pixel block if it's part of the subject (not transparent)
+            // Skip transparent pixels (avgA threshold: 25)
+            if (avgA > 25) {
+              resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+              resultCtx.fillRect(
+                Math.floor(offsetX + gridX * actualPixelSize),
+                Math.floor(offsetY + gridY * actualPixelSize),
+                Math.ceil(actualPixelSize),
+                Math.ceil(actualPixelSize)
+              );
+            }
+            // Transparent cells remain white (already filled as background)
           }
         }
       }
