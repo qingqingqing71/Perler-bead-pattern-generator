@@ -311,13 +311,14 @@ export default function Home() {
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    if (!finalImage || isPixelating) return;
+    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
+    if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(finalImage, gridSize);
+      const pixelated = await pixelateImage(sourceImage, gridSize);
       setPixelatedImage(pixelated);
     } catch (err) {
       console.error('Pixelate error:', err);
@@ -325,7 +326,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [finalImage, gridSize, isPixelating]);
+  }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -343,11 +344,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+    link.download = `pixelated-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, gridSize, useAnimeImage]);
+  }, [pixelatedImage, gridSize, animeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -541,7 +542,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || !finalImage}
+                    disabled={isPixelating || (!removedBgImage && !animeImage)}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -719,7 +720,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{useAnimeImage ? ', 动漫风格' : ''})
+                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
                 <Button
@@ -990,35 +991,36 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
   });
 }
 
-async function pixelateImage(imageUrl: string, pixelSize: number): Promise<string> {
+async function pixelateImage(imageUrl: string, gridCount: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Create a canvas with the same size as the image
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      // Create a canvas for the original image
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
       
-      if (!ctx) {
+      if (!srcCtx) {
         reject(new Error('无法创建画布'));
         return;
       }
 
-      const width = img.width;
-      const height = img.height;
+      const imgWidth = img.width;
+      const imgHeight = img.height;
       
-      canvas.width = width;
-      canvas.height = height;
-
-      // Draw original image
-      ctx.drawImage(img, 0, 0, width, height);
+      srcCanvas.width = imgWidth;
+      srcCanvas.height = imgHeight;
+      srcCtx.drawImage(img, 0, 0, imgWidth, imgHeight);
       
-      // Get image data
-      const imageData = ctx.getImageData(0, 0, width, height);
-      const data = imageData.data;
+      // Get source image data
+      const srcImageData = srcCtx.getImageData(0, 0, imgWidth, imgHeight);
+      const srcData = srcImageData.data;
 
-      // Create a new canvas for the pixelated result
+      // Create result canvas with same size as grid (800x800)
+      const gridSize = 800;
+      const cellSize = gridSize / gridCount;
+      
       const resultCanvas = document.createElement('canvas');
       const resultCtx = resultCanvas.getContext('2d');
       
@@ -1027,87 +1029,122 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
         return;
       }
 
-      resultCanvas.width = width;
-      resultCanvas.height = height;
+      resultCanvas.width = gridSize;
+      resultCanvas.height = gridSize;
 
       // Fill with white background
       resultCtx.fillStyle = '#ffffff';
-      resultCtx.fillRect(0, 0, width, height);
+      resultCtx.fillRect(0, 0, gridSize, gridSize);
 
-      // Calculate pixel size: each pixel corresponds to one grid cell
-      // For a grid image (800x800), cellSize = 800 / pixelSize
-      const actualPixelSize = Math.floor(width / pixelSize);
+      // Calculate image size and position (same as composeWithGrid)
+      const maxImageSize = gridSize * 0.9;
+      let scaledWidth = imgWidth;
+      let scaledHeight = imgHeight;
+      
+      if (scaledWidth > scaledHeight) {
+        if (scaledWidth > maxImageSize) {
+          scaledHeight = (scaledHeight / scaledWidth) * maxImageSize;
+          scaledWidth = maxImageSize;
+        }
+      } else {
+        if (scaledHeight > maxImageSize) {
+          scaledWidth = (scaledWidth / scaledHeight) * maxImageSize;
+          scaledHeight = maxImageSize;
+        }
+      }
 
-      // Pixelate: iterate through each "pixel" block
-      for (let y = 0; y < height; y += actualPixelSize) {
-        for (let x = 0; x < width; x += actualPixelSize) {
-          // Calculate the average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
+      // Center position
+      const offsetX = (gridSize - scaledWidth) / 2;
+      const offsetY = (gridSize - scaledHeight) / 2;
+
+      // Calculate pixel size based on grid
+      const actualPixelSize = cellSize;
+
+      // Pixelate the subject area
+      for (let gridY = 0; gridY < gridCount; gridY++) {
+        for (let gridX = 0; gridX < gridCount; gridX++) {
+          const canvasX = offsetX + gridX * actualPixelSize;
+          const canvasY = offsetY + gridY * actualPixelSize;
           
-          const blockWidth = Math.min(actualPixelSize, width - x);
-          const blockHeight = Math.min(actualPixelSize, height - y);
-
-          for (let by = 0; by < blockHeight; by++) {
-            for (let bx = 0; bx < blockWidth; bx++) {
-              const idx = ((y + by) * width + (x + bx)) * 4;
-              totalR += data[idx];
-              totalG += data[idx + 1];
-              totalB += data[idx + 2];
-              totalA += data[idx + 3];
-              pixelCount++;
+          // Check if this pixel block is within the subject bounds
+          if (canvasX >= offsetX && canvasX < offsetX + scaledWidth &&
+              canvasY >= offsetY && canvasY < offsetY + scaledHeight) {
+            
+            // Calculate corresponding source region
+            const srcX1 = Math.floor((canvasX - offsetX) / scaledWidth * imgWidth);
+            const srcY1 = Math.floor((canvasY - offsetY) / scaledHeight * imgHeight);
+            const srcX2 = Math.min(Math.floor((canvasX + actualPixelSize - offsetX) / scaledWidth * imgWidth), imgWidth);
+            const srcY2 = Math.min(Math.floor((canvasY + actualPixelSize - offsetY) / scaledHeight * imgHeight), imgHeight);
+            
+            // Calculate average color from source region
+            let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+            let pixelCount = 0;
+            
+            for (let sy = srcY1; sy < srcY2; sy++) {
+              for (let sx = srcX1; sx < srcX2; sx++) {
+                const idx = (sy * imgWidth + sx) * 4;
+                totalR += srcData[idx];
+                totalG += srcData[idx + 1];
+                totalB += srcData[idx + 2];
+                totalA += srcData[idx + 3];
+                pixelCount++;
+              }
+            }
+            
+            if (pixelCount > 0) {
+              const avgR = Math.round(totalR / pixelCount);
+              const avgG = Math.round(totalG / pixelCount);
+              const avgB = Math.round(totalB / pixelCount);
+              const avgA = Math.round(totalA / pixelCount);
+              
+              // Draw pixel block
+              resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+              resultCtx.fillRect(
+                Math.floor(offsetX + gridX * actualPixelSize),
+                Math.floor(offsetY + gridY * actualPixelSize),
+                Math.ceil(actualPixelSize),
+                Math.ceil(actualPixelSize)
+              );
             }
           }
-
-          // Calculate average
-          const avgR = Math.round(totalR / pixelCount);
-          const avgG = Math.round(totalG / pixelCount);
-          const avgB = Math.round(totalB / pixelCount);
-          const avgA = Math.round(totalA / pixelCount);
-
-          // Draw the pixel block
-          resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-          resultCtx.fillRect(x, y, blockWidth, blockHeight);
         }
       }
 
       // Draw grid lines on top (same style as grid result)
-      const cellSize = width / pixelSize;
-      
       resultCtx.strokeStyle = '#d1d5db';
       resultCtx.lineWidth = 1;
 
-      for (let i = 0; i <= pixelSize; i++) {
+      for (let i = 0; i <= gridCount; i++) {
         const pos = i * cellSize;
         
         resultCtx.beginPath();
         resultCtx.moveTo(pos, 0);
-        resultCtx.lineTo(pos, height);
+        resultCtx.lineTo(pos, gridSize);
         resultCtx.stroke();
         
         resultCtx.beginPath();
         resultCtx.moveTo(0, pos);
-        resultCtx.lineTo(width, pos);
+        resultCtx.lineTo(gridSize, pos);
         resultCtx.stroke();
       }
 
       // Draw thicker lines every 5 cells
-      if (pixelSize >= 10) {
+      if (gridCount >= 10) {
         resultCtx.strokeStyle = '#9ca3af';
         resultCtx.lineWidth = 2;
         
         const majorInterval = 5;
-        for (let i = 0; i <= pixelSize; i += majorInterval) {
+        for (let i = 0; i <= gridCount; i += majorInterval) {
           const pos = i * cellSize;
           
           resultCtx.beginPath();
           resultCtx.moveTo(pos, 0);
-          resultCtx.lineTo(pos, height);
+          resultCtx.lineTo(pos, gridSize);
           resultCtx.stroke();
           
           resultCtx.beginPath();
           resultCtx.moveTo(0, pos);
-          resultCtx.lineTo(width, pos);
+          resultCtx.lineTo(gridSize, pos);
           resultCtx.stroke();
         }
       }
