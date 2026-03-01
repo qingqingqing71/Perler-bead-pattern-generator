@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -14,14 +14,14 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-type ProcessingStep = 'idle' | 'uploading' | 'removing-bg' | 'generating-grid' | 'composing' | 'done';
+type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'generating-grid' | 'done';
 
 const STEP_LABELS: Record<ProcessingStep, string> = {
   idle: '准备就绪',
   uploading: '正在上传图片...',
-  'removing-bg': '正在抠图（首次加载模型需要较长时间）...',
+  'loading-model': '正在加载 AI 模型（首次需要下载）...',
+  'removing-bg': '正在抠图...',
   'generating-grid': '正在生成网格纸...',
-  composing: '正在合成图片...',
   done: '处理完成',
 };
 
@@ -32,7 +32,41 @@ export default function Home() {
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [modelLoaded, setModelLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelRef = useRef<{
+    segmenter: BodySegmenter | null;
+    loaded: boolean;
+  }>({ segmenter: null, loaded: false });
+
+  // Load TensorFlow model on mount
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        const tf = await import('@tensorflow/tfjs');
+        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
+        
+        // Wait for TF to be ready
+        await tf.ready();
+        
+        // Create segmenter with BodyPix model
+        const model = bodySegmentation.SupportedModels.BodyPix;
+        const segmenter = await bodySegmentation.createSegmenter(model, {
+          architecture: 'MobileNetV1',
+          outputStride: 16,
+          multiplier: 0.75,
+        });
+        
+        modelRef.current = { segmenter, loaded: true };
+        setModelLoaded(true);
+        console.log('Model loaded successfully');
+      } catch (err) {
+        console.error('Failed to load model:', err);
+      }
+    };
+    
+    loadModel();
+  }, []);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -41,6 +75,7 @@ export default function Home() {
     setError(null);
     setProgress(0);
     setFinalImage(null);
+    setRemovedBgImage(null);
 
     try {
       // Step 1: Read file
@@ -49,41 +84,88 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      // Step 2: Remove background (dynamic import for client-side only)
-      setStep('removing-bg');
+      // Step 2: Load model if not loaded
+      setStep('loading-model');
       setProgress(20);
+      
+      if (!modelRef.current.loaded) {
+        const tf = await import('@tensorflow/tfjs');
+        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
+        
+        await tf.ready();
+        
+        const model = bodySegmentation.SupportedModels.BodyPix;
+        const segmenter = await bodySegmentation.createSegmenter(model, {
+          architecture: 'MobileNetV1',
+          outputStride: 16,
+          multiplier: 0.75,
+        });
+        
+        modelRef.current = { segmenter, loaded: true };
+        setModelLoaded(true);
+      }
+      setProgress(40);
 
-      // Dynamically import the library to ensure it's only loaded on the client
-      // The library uses default export
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const bgRemovalModule = await import('@imgly/background-removal') as any;
-      const removeBackgroundFn = bgRemovalModule.default;
+      // Step 3: Remove background
+      setStep('removing-bg');
+      setProgress(50);
 
-      const blob = await removeBackgroundFn(file, {
-        progress: (key: string, current: number, total: number) => {
-          if (total > 0) {
-            const percent = Math.round((current / total) * 60) + 20;
-            setProgress(Math.min(percent, 80));
+      const segmenter = modelRef.current.segmenter;
+      if (!segmenter) {
+        throw new Error('模型未加载');
+      }
+
+      // Load image to get segmentation
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      const segmentationResult = await new Promise<{ segmentation: ImageData; originalWidth: number; originalHeight: number }>((resolve, reject) => {
+        img.onload = async () => {
+          try {
+            const originalWidth = img.width;
+            const originalHeight = img.height;
+            
+            // Run segmentation
+            const segmentation = await segmenter.segmentPeople(img, {
+              flipHorizontal: false,
+              multiSegment: false,
+            });
+            
+            if (!segmentation || segmentation.length === 0) {
+              reject(new Error('无法识别图像中的人物'));
+              return;
+            }
+            
+            // Get mask
+            const mask = await segmentation[0].mask.toImageData();
+            resolve({ segmentation: mask, originalWidth, originalHeight });
+          } catch (err) {
+            reject(err);
           }
-        },
+        };
+        img.onerror = () => reject(new Error('无法加载图片'));
+        img.src = imageDataUrl;
       });
 
-      const removedBgUrl = URL.createObjectURL(blob);
-      setRemovedBgImage(removedBgUrl);
+      setProgress(70);
+
+      // Step 4: Apply mask to remove background
+      const removedBgDataUrl = await applyBackgroundRemoval(
+        imageDataUrl, 
+        segmentationResult.segmentation,
+        segmentationResult.originalWidth,
+        segmentationResult.originalHeight
+      );
+      
+      setRemovedBgImage(removedBgDataUrl);
       setProgress(85);
 
-      // Step 3: Generate grid and compose
+      // Step 5: Generate grid and compose
       setStep('generating-grid');
       setProgress(90);
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const composedImage = await composeWithGrid(removedBgUrl);
+      const composedImage = await composeWithGrid(removedBgDataUrl);
       setFinalImage(composedImage);
-
-      // Step 4: Done
-      setStep('composing');
-      setProgress(95);
-      await new Promise((resolve) => setTimeout(resolve, 200));
 
       setStep('done');
       setProgress(100);
@@ -132,6 +214,18 @@ export default function Home() {
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
             上传照片，AI 自动识别并抠出主体，然后贴到空白网格纸上
           </p>
+          {!modelLoaded && (
+            <div className="mt-4 inline-flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">AI 模型加载中...</span>
+            </div>
+          )}
+          {modelLoaded && (
+            <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-sm">AI 模型已就绪</span>
+            </div>
+          )}
         </div>
 
         {/* Main Content */}
@@ -148,7 +242,7 @@ export default function Home() {
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
-                  ${step === 'idle' ? 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20' : 'border-slate-200 dark:border-slate-800'}
+                  ${step === 'idle' && modelLoaded ? 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20' : 'border-slate-200 dark:border-slate-800'}
                 `}
               >
                 <input
@@ -157,7 +251,7 @@ export default function Home() {
                   accept="image/*"
                   onChange={handleFileSelect}
                   className="hidden"
-                  disabled={step !== 'idle'}
+                  disabled={step !== 'idle' || !modelLoaded}
                 />
 
                 {originalImage ? (
@@ -303,7 +397,7 @@ export default function Home() {
               </div>
               <div>
                 <p className="font-medium">上传图片</p>
-                <p className="text-sm text-slate-500">选择包含主体的照片</p>
+                <p className="text-sm text-slate-500">选择包含人物的照片</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -330,12 +424,18 @@ export default function Home() {
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>首次使用时，AI 模型需要下载到浏览器中（约 30-50MB），请耐心等待。之后再次使用会快很多。
+            <strong>提示：</strong>此工具使用 TensorFlow.js 的 BodyPix 模型，专门针对人物抠图优化。首次使用时需要下载模型（约 5MB），之后会缓存在浏览器中。
           </p>
         </div>
       </div>
     </div>
   );
+}
+
+// Type for body segmentation
+interface BodySegmenter {
+  segmentPeople: (image: HTMLImageElement, config: { flipHorizontal: boolean; multiSegment: boolean }) => Promise<Array<{ mask: { toImageData: () => Promise<ImageData> } }>>;
+  dispose: () => void;
 }
 
 // Helper functions
@@ -348,13 +448,89 @@ function readFileAsDataURL(file: File): Promise<string> {
   });
 }
 
+async function applyBackgroundRemoval(
+  imageSrc: string, 
+  mask: ImageData,
+  originalWidth: number,
+  originalHeight: number
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      canvas.width = originalWidth;
+      canvas.height = originalHeight;
+
+      // Draw original image
+      ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
+      
+      // Get image data
+      const imageData = ctx.getImageData(0, 0, originalWidth, originalHeight);
+      const data = imageData.data;
+      
+      // Create a canvas for the mask to resize it
+      const maskCanvas = document.createElement('canvas');
+      const maskCtx = maskCanvas.getContext('2d');
+      if (!maskCtx) {
+        reject(new Error('无法创建遮罩画布'));
+        return;
+      }
+      
+      maskCanvas.width = originalWidth;
+      maskCanvas.height = originalHeight;
+      
+      // Draw the mask scaled to original size
+      const tempMaskCanvas = document.createElement('canvas');
+      tempMaskCanvas.width = mask.width;
+      tempMaskCanvas.height = mask.height;
+      const tempMaskCtx = tempMaskCanvas.getContext('2d');
+      if (!tempMaskCtx) {
+        reject(new Error('无法创建临时遮罩画布'));
+        return;
+      }
+      tempMaskCtx.putImageData(mask, 0, 0);
+      
+      // Scale mask to original size
+      maskCtx.drawImage(tempMaskCanvas, 0, 0, mask.width, mask.height, 0, 0, originalWidth, originalHeight);
+      const scaledMaskData = maskCtx.getImageData(0, 0, originalWidth, originalHeight);
+      const maskData = scaledMaskData.data;
+
+      // Apply mask - set alpha based on mask
+      for (let i = 0; i < data.length; i += 4) {
+        // Use the red channel of the mask as alpha
+        // The mask is typically white (255) for foreground, black (0) for background
+        const maskValue = maskData[i]; // Red channel
+        // Invert: if mask is white (foreground), keep the pixel; if black (background), make transparent
+        data[i + 3] = maskValue; // Set alpha channel
+      }
+
+      // Put the modified image data back
+      ctx.putImageData(imageData, 0, 0);
+
+      // Convert to data URL
+      resolve(canvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageSrc;
+  });
+}
+
 async function composeWithGrid(removedBgUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Create canvas
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
