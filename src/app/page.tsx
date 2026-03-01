@@ -12,6 +12,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Grid3X3,
 } from 'lucide-react';
 
 type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'generating-grid' | 'done';
@@ -25,6 +26,16 @@ const STEP_LABELS: Record<ProcessingStep, string> = {
   done: '处理完成',
 };
 
+// Grid size options
+const GRID_OPTIONS = [
+  { value: 15, label: '15 × 15' },
+  { value: 25, label: '25 × 25' },
+  { value: 32, label: '32 × 32' },
+  { value: 40, label: '40 × 40' },
+  { value: 52, label: '52 × 52' },
+  { value: 100, label: '100 × 100' },
+];
+
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
@@ -33,6 +44,7 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [modelLoaded, setModelLoaded] = useState(false);
+  const [gridSize, setGridSize] = useState(25); // Default 25x25
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -46,10 +58,8 @@ export default function Home() {
         const tf = await import('@tensorflow/tfjs');
         const bodySegmentation = await import('@tensorflow-models/body-segmentation');
         
-        // Wait for TF to be ready
         await tf.ready();
         
-        // Use MediaPipe Selfie Segmentation model - more accurate than BodyPix
         const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
         const segmenter = await bodySegmentation.createSegmenter(model, {
           runtime: 'tfjs',
@@ -61,7 +71,6 @@ export default function Home() {
         console.log('Model loaded successfully');
       } catch (err) {
         console.error('Failed to load model:', err);
-        // Fallback to BodyPix if MediaPipe fails
         try {
           const tf = await import('@tensorflow/tfjs');
           const bodySegmentation = await import('@tensorflow-models/body-segmentation');
@@ -69,7 +78,6 @@ export default function Home() {
           await tf.ready();
           
           const model = bodySegmentation.SupportedModels.BodyPix;
-          // Use higher quality settings
           const segmenter = await bodySegmentation.createSegmenter(model, {
             architecture: 'ResNet50',
             outputStride: 16,
@@ -90,9 +98,7 @@ export default function Home() {
 
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    // Allow upload when idle or done
     if ((step === 'idle' || step === 'done') && modelLoaded) {
-      // Reset state if clicking when done
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -100,7 +106,6 @@ export default function Home() {
         setProgress(0);
         setError(null);
       }
-      // Reset file input and trigger click
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
         fileInputRef.current.click();
@@ -118,13 +123,11 @@ export default function Home() {
     setRemovedBgImage(null);
 
     try {
-      // Step 1: Read file
       setStep('uploading');
       setProgress(10);
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      // Step 2: Ensure model is loaded
       setStep('loading-model');
       setProgress(20);
       
@@ -146,11 +149,9 @@ export default function Home() {
       }
       setProgress(30);
 
-      // Step 3: Remove background
       setStep('removing-bg');
       setProgress(40);
 
-      // Load image and run segmentation
       const img = new Image();
       img.crossOrigin = 'anonymous';
       
@@ -162,7 +163,6 @@ export default function Home() {
             
             setProgress(50);
             
-            // Run segmentation
             const segmentation = await segmenter!.segmentPeople(img, {
               flipHorizontal: false,
               multiSegment: false,
@@ -175,7 +175,6 @@ export default function Home() {
             
             setProgress(70);
             
-            // Get mask and apply it
             const mask = await segmentation[0].mask.toImageData();
             const removedBgDataUrl = await applyBackgroundRemoval(
               imageDataUrl,
@@ -196,11 +195,11 @@ export default function Home() {
       setRemovedBgImage(result);
       setProgress(85);
 
-      // Step 4: Generate grid and compose
       setStep('generating-grid');
       setProgress(90);
 
-      const composedImage = await composeWithGrid(result);
+      // Use the selected grid size
+      const composedImage = await composeWithGrid(result, gridSize);
       setFinalImage(composedImage);
 
       setStep('done');
@@ -211,18 +210,37 @@ export default function Home() {
       setStep('idle');
       setProgress(0);
     }
-  }, []);
+  }, [gridSize]);
+
+  // Regenerate with new grid size
+  const handleGridSizeChange = useCallback(async (newGridSize: number) => {
+    setGridSize(newGridSize);
+    
+    if (removedBgImage && (step === 'done' || step === 'generating-grid')) {
+      setStep('generating-grid');
+      setProgress(90);
+      
+      try {
+        const composedImage = await composeWithGrid(removedBgImage, newGridSize);
+        setFinalImage(composedImage);
+        setStep('done');
+        setProgress(100);
+      } catch (err) {
+        console.error('Failed to regenerate:', err);
+      }
+    }
+  }, [removedBgImage, step]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
 
     const link = document.createElement('a');
     link.href = finalImage;
-    link.download = 'subject-on-grid.png';
+    link.download = `subject-on-grid-${gridSize}x${gridSize}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [finalImage]);
+  }, [finalImage, gridSize]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -265,6 +283,35 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* Grid Size Selector */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Grid3X3 className="w-5 h-5 text-blue-600" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {GRID_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant={gridSize === option.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleGridSizeChange(option.value)}
+                    className={`min-w-[80px] ${
+                      gridSize === option.value 
+                        ? 'bg-blue-600 hover:bg-blue-700' 
+                        : ''
+                    }`}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Main Content */}
         <div className="grid lg:grid-cols-2 gap-6">
@@ -338,7 +385,7 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm">处理完成</span>
+                  <span className="text-sm">处理完成 - {gridSize}×{gridSize} 网格纸</span>
                 </div>
               )}
 
@@ -380,6 +427,11 @@ export default function Home() {
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5" />
                 处理结果
+                {finalImage && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({gridSize}×{gridSize} 网格)
+                  </span>
+                )}
               </h2>
 
               <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
@@ -436,10 +488,19 @@ export default function Home() {
         {/* Instructions */}
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
           <h3 className="text-lg font-semibold mb-4">使用说明</h3>
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-4 gap-4">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
                 <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
+              </div>
+              <div>
+                <p className="font-medium">选择网格规格</p>
+                <p className="text-sm text-slate-500">选择需要的网格纸大小</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
               </div>
               <div>
                 <p className="font-medium">上传图片</p>
@@ -448,7 +509,7 @@ export default function Home() {
             </div>
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
               </div>
               <div>
                 <p className="font-medium">AI 自动抠图</p>
@@ -457,7 +518,7 @@ export default function Home() {
             </div>
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">4</span>
               </div>
               <div>
                 <p className="font-medium">下载结果</p>
@@ -470,7 +531,7 @@ export default function Home() {
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>此工具使用 MediaPipe Selfie Segmentation 模型，专门针对人物抠图优化，准确度较高。首次使用需要下载模型，之后会缓存在浏览器中。
+            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。您可以随时切换网格规格，已抠图的图像会自动重新合成。
           </p>
         </div>
       </div>
@@ -516,14 +577,11 @@ async function applyBackgroundRemoval(
       canvas.width = originalWidth;
       canvas.height = originalHeight;
 
-      // Draw original image
       ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
       
-      // Get image data
       const imageData = ctx.getImageData(0, 0, originalWidth, originalHeight);
       const data = imageData.data;
       
-      // Create a canvas for the mask to resize it
       const maskCanvas = document.createElement('canvas');
       const maskCtx = maskCanvas.getContext('2d');
       if (!maskCtx) {
@@ -534,7 +592,6 @@ async function applyBackgroundRemoval(
       maskCanvas.width = originalWidth;
       maskCanvas.height = originalHeight;
       
-      // Draw the mask scaled to original size
       const tempMaskCanvas = document.createElement('canvas');
       tempMaskCanvas.width = mask.width;
       tempMaskCanvas.height = mask.height;
@@ -545,33 +602,19 @@ async function applyBackgroundRemoval(
       }
       tempMaskCtx.putImageData(mask, 0, 0);
       
-      // Scale mask to original size with smoothing
       maskCtx.imageSmoothingEnabled = true;
       maskCtx.imageSmoothingQuality = 'high';
       maskCtx.drawImage(tempMaskCanvas, 0, 0, mask.width, mask.height, 0, 0, originalWidth, originalHeight);
       const scaledMaskData = maskCtx.getImageData(0, 0, originalWidth, originalHeight);
       const maskData = scaledMaskData.data;
 
-      // Apply mask with smoothing
       for (let i = 0; i < data.length; i += 4) {
-        // Use the red channel of the mask as alpha
-        // Apply slight smoothing at edges
         const maskValue = maskData[i];
-        
-        // Smooth transition at edges
-        let alpha = maskValue;
-        if (maskValue > 30 && maskValue < 225) {
-          // Edge pixels - apply smoothing
-          alpha = Math.min(255, Math.max(0, maskValue));
-        }
-        
+        let alpha = Math.min(255, Math.max(0, maskValue));
         data[i + 3] = alpha;
       }
 
-      // Put the modified image data back
       ctx.putImageData(imageData, 0, 0);
-
-      // Convert to data URL
       resolve(canvas.toDataURL('image/png'));
     };
 
@@ -580,7 +623,7 @@ async function applyBackgroundRemoval(
   });
 }
 
-async function composeWithGrid(removedBgUrl: string): Promise<string> {
+async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -594,79 +637,89 @@ async function composeWithGrid(removedBgUrl: string): Promise<string> {
         return;
       }
 
-      // Set canvas size (use image size or max 800px)
-      const maxSize = 800;
-      let width = img.width;
-      let height = img.height;
-      
-      if (width > maxSize || height > maxSize) {
-        if (width > height) {
-          height = (height / width) * maxSize;
-          width = maxSize;
-        } else {
-          width = (width / height) * maxSize;
-          height = maxSize;
-        }
-      }
+      // Calculate canvas size based on grid count
+      // Each grid cell is the same size, total grid is gridSize x gridSize pixels
+      const gridSize = 800; // Fixed canvas size in pixels
+      const cellSize = gridSize / gridCount;
+
+      const width = gridSize;
+      const height = gridSize;
 
       canvas.width = width;
       canvas.height = height;
 
-      // Draw grid background
-      const gridSize = 20;
+      // Draw white background
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
       // Draw grid lines
-      ctx.strokeStyle = '#e5e7eb';
+      ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
-      // Vertical lines
-      for (let x = 0; x <= width; x += gridSize) {
+      // Draw all grid lines
+      for (let i = 0; i <= gridCount; i++) {
+        const pos = i * cellSize;
+        
+        // Vertical line
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.moveTo(pos, 0);
+        ctx.lineTo(pos, height);
+        ctx.stroke();
+        
+        // Horizontal line
+        ctx.beginPath();
+        ctx.moveTo(0, pos);
+        ctx.lineTo(width, pos);
         ctx.stroke();
       }
 
-      // Horizontal lines
-      for (let y = 0; y <= height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
+      // Draw thicker lines every 5 cells (if grid is large enough)
+      if (gridCount >= 10) {
+        ctx.strokeStyle = '#9ca3af';
+        ctx.lineWidth = 2;
+        
+        const majorInterval = 5;
+        for (let i = 0; i <= gridCount; i += majorInterval) {
+          const pos = i * cellSize;
+          
+          // Vertical line
+          ctx.beginPath();
+          ctx.moveTo(pos, 0);
+          ctx.lineTo(pos, height);
+          ctx.stroke();
+          
+          // Horizontal line
+          ctx.beginPath();
+          ctx.moveTo(0, pos);
+          ctx.lineTo(width, pos);
+          ctx.stroke();
+        }
       }
 
-      // Draw thicker lines every 100px
-      ctx.strokeStyle = '#d1d5db';
-      ctx.lineWidth = 2;
-      const majorGridSize = 100;
-
-      // Major vertical lines
-      for (let x = 0; x <= width; x += majorGridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
+      // Calculate image size (0.9 of grid size, maintaining aspect ratio)
+      const maxImageSize = gridSize * 0.9;
+      let imgWidth = img.width;
+      let imgHeight = img.height;
+      
+      // Scale image to fit within 0.9 of grid size
+      if (imgWidth > imgHeight) {
+        if (imgWidth > maxImageSize) {
+          imgHeight = (imgHeight / imgWidth) * maxImageSize;
+          imgWidth = maxImageSize;
+        }
+      } else {
+        if (imgHeight > maxImageSize) {
+          imgWidth = (imgWidth / imgHeight) * maxImageSize;
+          imgHeight = maxImageSize;
+        }
       }
 
-      // Major horizontal lines
-      for (let y = 0; y <= height; y += majorGridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-
-      // Draw the subject image (centered)
-      const imgWidth = img.width;
-      const imgHeight = img.height;
+      // Center the image
       const x = (width - imgWidth) / 2;
       const y = (height - imgHeight) / 2;
       
       ctx.drawImage(img, x, y, imgWidth, imgHeight);
 
-      // Convert to data URL
       resolve(canvas.toDataURL('image/png'));
     };
 
