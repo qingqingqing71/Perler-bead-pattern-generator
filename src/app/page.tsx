@@ -311,13 +311,14 @@ export default function Home() {
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    if (!finalImage || isPixelating) return;
+    const sourceImage = animeImage || removedBgImage;
+    if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(finalImage, gridSize);
+      const pixelated = await pixelateImage(sourceImage, gridSize);
       setPixelatedImage(pixelated);
     } catch (err) {
       console.error('Pixelate error:', err);
@@ -325,7 +326,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [finalImage, gridSize, isPixelating]);
+  }, [removedBgImage, animeImage, gridSize, isPixelating]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -343,11 +344,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+    link.download = `pixelated-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, gridSize, useAnimeImage]);
+  }, [pixelatedImage, gridSize, animeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -541,7 +542,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || !finalImage}
+                    disabled={isPixelating || (!removedBgImage && !animeImage)}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -719,7 +720,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{useAnimeImage ? ', 动漫风格' : ''})
+                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
                 <Button
@@ -990,65 +991,65 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
   });
 }
 
-async function pixelateImage(imageUrl: string, pixelSize: number): Promise<string> {
+async function pixelateImage(imageUrl: string, gridCount: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Create a canvas with the same size as the image
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      // Create a canvas for the original image
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
       
-      if (!ctx) {
+      if (!tempCtx) {
         reject(new Error('无法创建画布'));
         return;
       }
 
-      const width = img.width;
-      const height = img.height;
+      const imgWidth = img.width;
+      const imgHeight = img.height;
       
-      canvas.width = width;
-      canvas.height = height;
-
-      // Draw original image (grid result)
-      ctx.drawImage(img, 0, 0, width, height);
+      tempCanvas.width = imgWidth;
+      tempCanvas.height = imgHeight;
+      tempCtx.drawImage(img, 0, 0, imgWidth, imgHeight);
       
       // Get image data
-      const imageData = ctx.getImageData(0, 0, width, height);
+      const imageData = tempCtx.getImageData(0, 0, imgWidth, imgHeight);
       const data = imageData.data;
 
-      // Create a new canvas for the pixelated result
-      const resultCanvas = document.createElement('canvas');
-      const resultCtx = resultCanvas.getContext('2d');
+      // Create a canvas for the pixelated image (same size as original)
+      const pixelCanvas = document.createElement('canvas');
+      const pixelCtx = pixelCanvas.getContext('2d');
       
-      if (!resultCtx) {
-        reject(new Error('无法创建结果画布'));
+      if (!pixelCtx) {
+        reject(new Error('无法创建像素画布'));
         return;
       }
 
-      resultCanvas.width = width;
-      resultCanvas.height = height;
+      pixelCanvas.width = imgWidth;
+      pixelCanvas.height = imgHeight;
 
-      // Calculate pixel size: each pixel corresponds to one grid cell
-      const actualPixelSize = Math.floor(width / pixelSize);
+      // Calculate pixel size based on image dimensions and grid count
+      const smallerDimension = Math.min(imgWidth, imgHeight);
+      const pixelSize = Math.floor(smallerDimension / gridCount);
 
       // Pixelate: iterate through each "pixel" block
-      for (let y = 0; y < height; y += actualPixelSize) {
-        for (let x = 0; x < width; x += actualPixelSize) {
+      for (let y = 0; y < imgHeight; y += pixelSize) {
+        for (let x = 0; x < imgWidth; x += pixelSize) {
           // Calculate the average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0;
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
           
-          const blockWidth = Math.min(actualPixelSize, width - x);
-          const blockHeight = Math.min(actualPixelSize, height - y);
+          const blockWidth = Math.min(pixelSize, imgWidth - x);
+          const blockHeight = Math.min(pixelSize, imgHeight - y);
 
           for (let by = 0; by < blockHeight; by++) {
             for (let bx = 0; bx < blockWidth; bx++) {
-              const idx = ((y + by) * width + (x + bx)) * 4;
+              const idx = ((y + by) * imgWidth + (x + bx)) * 4;
               totalR += data[idx];
               totalG += data[idx + 1];
               totalB += data[idx + 2];
+              totalA += data[idx + 3];
               pixelCount++;
             }
           }
@@ -1057,34 +1058,99 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
           const avgR = Math.round(totalR / pixelCount);
           const avgG = Math.round(totalG / pixelCount);
           const avgB = Math.round(totalB / pixelCount);
+          const avgA = Math.round(totalA / pixelCount);
 
-          // Draw the pixel block with average color
-          resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-          resultCtx.fillRect(x, y, blockWidth, blockHeight);
+          // Only draw if not fully transparent
+          if (avgA > 0) {
+            pixelCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+            pixelCtx.fillRect(x, y, blockWidth, blockHeight);
+          }
         }
       }
 
-      // Draw fine grid lines on top
-      const cellSize = width / pixelSize;
+      // Create the final grid canvas (800x800)
+      const gridCanvas = document.createElement('canvas');
+      const gridCtx = gridCanvas.getContext('2d');
       
-      resultCtx.strokeStyle = '#d1d5db';
-      resultCtx.lineWidth = 1;
-
-      for (let i = 0; i <= pixelSize; i++) {
-        const pos = i * cellSize;
-        
-        resultCtx.beginPath();
-        resultCtx.moveTo(pos, 0);
-        resultCtx.lineTo(pos, height);
-        resultCtx.stroke();
-        
-        resultCtx.beginPath();
-        resultCtx.moveTo(0, pos);
-        resultCtx.lineTo(width, pos);
-        resultCtx.stroke();
+      if (!gridCtx) {
+        reject(new Error('无法创建网格画布'));
+        return;
       }
 
-      resolve(resultCanvas.toDataURL('image/png'));
+      const gridSize = 800;
+      gridCanvas.width = gridSize;
+      gridCanvas.height = gridSize;
+
+      // Draw white background
+      gridCtx.fillStyle = '#ffffff';
+      gridCtx.fillRect(0, 0, gridSize, gridSize);
+
+      // Calculate image size (0.9 of grid size)
+      const maxImageSize = gridSize * 0.9;
+      let finalImgWidth = pixelCanvas.width;
+      let finalImgHeight = pixelCanvas.height;
+      
+      if (finalImgWidth > finalImgHeight) {
+        if (finalImgWidth > maxImageSize) {
+          finalImgHeight = (finalImgHeight / finalImgWidth) * maxImageSize;
+          finalImgWidth = maxImageSize;
+        }
+      } else {
+        if (finalImgHeight > maxImageSize) {
+          finalImgWidth = (finalImgWidth / finalImgHeight) * maxImageSize;
+          finalImgHeight = maxImageSize;
+        }
+      }
+
+      // Center the image
+      const x = (gridSize - finalImgWidth) / 2;
+      const y = (gridSize - finalImgHeight) / 2;
+      
+      // Draw the pixelated image
+      gridCtx.drawImage(pixelCanvas, x, y, finalImgWidth, finalImgHeight);
+
+      // Draw grid lines on top
+      const cellSize = gridSize / gridCount;
+      
+      gridCtx.strokeStyle = '#d1d5db';
+      gridCtx.lineWidth = 1;
+
+      for (let i = 0; i <= gridCount; i++) {
+        const pos = i * cellSize;
+        
+        gridCtx.beginPath();
+        gridCtx.moveTo(pos, 0);
+        gridCtx.lineTo(pos, gridSize);
+        gridCtx.stroke();
+        
+        gridCtx.beginPath();
+        gridCtx.moveTo(0, pos);
+        gridCtx.lineTo(gridSize, pos);
+        gridCtx.stroke();
+      }
+
+      // Draw thicker lines every 5 cells
+      if (gridCount >= 10) {
+        gridCtx.strokeStyle = '#9ca3af';
+        gridCtx.lineWidth = 2;
+        
+        const majorInterval = 5;
+        for (let i = 0; i <= gridCount; i += majorInterval) {
+          const pos = i * cellSize;
+          
+          gridCtx.beginPath();
+          gridCtx.moveTo(pos, 0);
+          gridCtx.lineTo(pos, gridSize);
+          gridCtx.stroke();
+          
+          gridCtx.beginPath();
+          gridCtx.moveTo(0, pos);
+          gridCtx.lineTo(gridSize, pos);
+          gridCtx.stroke();
+        }
+      }
+
+      resolve(gridCanvas.toDataURL('image/png'));
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
