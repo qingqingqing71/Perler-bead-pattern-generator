@@ -1036,7 +1036,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       resultCtx.fillStyle = '#ffffff';
       resultCtx.fillRect(0, 0, gridSize, gridSize);
 
-      // Calculate image size and position (same as composeWithGrid)
+      // Calculate image size and position, align to grid lines
       const maxImageSize = gridSize * 0.9;
       let scaledWidth = imgWidth;
       let scaledHeight = imgHeight;
@@ -1053,59 +1053,62 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
         }
       }
 
-      // Center position
-      const offsetX = (gridSize - scaledWidth) / 2;
-      const offsetY = (gridSize - scaledHeight) / 2;
+      // Align size to grid cells
+      const alignedWidth = Math.round(scaledWidth / cellSize) * cellSize;
+      const alignedHeight = Math.round(scaledHeight / cellSize) * cellSize;
+      
+      // Align position to grid lines (centered)
+      const offsetX = Math.round((gridSize - alignedWidth) / 2 / cellSize) * cellSize;
+      const offsetY = Math.round((gridSize - alignedHeight) / 2 / cellSize) * cellSize;
 
       // Calculate pixel size based on grid
       const actualPixelSize = cellSize;
 
+      // Calculate grid cell counts for subject
+      const cellCountX = Math.round(alignedWidth / cellSize);
+      const cellCountY = Math.round(alignedHeight / cellSize);
+
       // Pixelate the subject area
-      for (let gridY = 0; gridY < gridCount; gridY++) {
-        for (let gridX = 0; gridX < gridCount; gridX++) {
+      for (let gridY = 0; gridY < cellCountY; gridY++) {
+        for (let gridX = 0; gridX < cellCountX; gridX++) {
           const canvasX = offsetX + gridX * actualPixelSize;
           const canvasY = offsetY + gridY * actualPixelSize;
           
-          // Check if this pixel block is within the subject bounds
-          if (canvasX >= offsetX && canvasX < offsetX + scaledWidth &&
-              canvasY >= offsetY && canvasY < offsetY + scaledHeight) {
-            
-            // Calculate corresponding source region
-            const srcX1 = Math.floor((canvasX - offsetX) / scaledWidth * imgWidth);
-            const srcY1 = Math.floor((canvasY - offsetY) / scaledHeight * imgHeight);
-            const srcX2 = Math.min(Math.floor((canvasX + actualPixelSize - offsetX) / scaledWidth * imgWidth), imgWidth);
-            const srcY2 = Math.min(Math.floor((canvasY + actualPixelSize - offsetY) / scaledHeight * imgHeight), imgHeight);
-            
-            // Calculate average color from source region
-            let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-            let pixelCount = 0;
-            
-            for (let sy = srcY1; sy < srcY2; sy++) {
-              for (let sx = srcX1; sx < srcX2; sx++) {
-                const idx = (sy * imgWidth + sx) * 4;
-                totalR += srcData[idx];
-                totalG += srcData[idx + 1];
-                totalB += srcData[idx + 2];
-                totalA += srcData[idx + 3];
-                pixelCount++;
-              }
+          // Calculate corresponding source region
+          const srcX1 = Math.floor(gridX / cellCountX * imgWidth);
+          const srcY1 = Math.floor(gridY / cellCountY * imgHeight);
+          const srcX2 = Math.floor((gridX + 1) / cellCountX * imgWidth);
+          const srcY2 = Math.floor((gridY + 1) / cellCountY * imgHeight);
+          
+          // Calculate average color from source region
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+          
+          for (let sy = srcY1; sy < srcY2; sy++) {
+            for (let sx = srcX1; sx < srcX2; sx++) {
+              const idx = (sy * imgWidth + sx) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
+              pixelCount++;
             }
+          }
+          
+          if (pixelCount > 0) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
             
-            if (pixelCount > 0) {
-              const avgR = Math.round(totalR / pixelCount);
-              const avgG = Math.round(totalG / pixelCount);
-              const avgB = Math.round(totalB / pixelCount);
-              const avgA = Math.round(totalA / pixelCount);
-              
-              // Draw pixel block
-              resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-              resultCtx.fillRect(
-                Math.floor(offsetX + gridX * actualPixelSize),
-                Math.floor(offsetY + gridY * actualPixelSize),
-                Math.ceil(actualPixelSize),
-                Math.ceil(actualPixelSize)
-              );
-            }
+            // Draw pixel block
+            resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+            resultCtx.fillRect(
+              Math.floor(offsetX + gridX * actualPixelSize),
+              Math.floor(offsetY + gridY * actualPixelSize),
+              Math.ceil(actualPixelSize),
+              Math.ceil(actualPixelSize)
+            );
           }
         }
       }
