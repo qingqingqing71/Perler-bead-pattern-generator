@@ -244,11 +244,14 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        setAnimeImage(data.imageUrl);
+        // Remove black background from anime image
+        const cleanedAnimeImage = await removeBlackBackground(data.imageUrl);
+        
+        setAnimeImage(cleanedAnimeImage);
         setUseAnimeImage(true);
         
         // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
+        const composedImage = await composeWithGrid(cleanedAnimeImage, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
