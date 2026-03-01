@@ -16,62 +16,7 @@ import {
   Sparkles,
   RefreshCw,
   Grid2X2,
-  Palette,
 } from 'lucide-react';
-
-// Mard拼豆颜色库
-const MARD_COLORS = [
-  { id: '01', name: '白色', hex: '#FFFFFF', rgb: [255, 255, 255] },
-  { id: '02', name: '奶油色', hex: '#FFF8DC', rgb: [255, 248, 220] },
-  { id: '03', name: '黄色', hex: '#FFD700', rgb: [255, 215, 0] },
-  { id: '04', name: '橙色', hex: '#FF8C00', rgb: [255, 140, 0] },
-  { id: '05', name: '红色', hex: '#DC143C', rgb: [220, 20, 60] },
-  { id: '06', name: '深红', hex: '#8B0000', rgb: [139, 0, 0] },
-  { id: '07', name: '粉色', hex: '#FFB6C1', rgb: [255, 182, 193] },
-  { id: '08', name: '浅粉', hex: '#FFC0CB', rgb: [255, 192, 203] },
-  { id: '09', name: '紫色', hex: '#9370DB', rgb: [147, 112, 219] },
-  { id: '10', name: '深紫', hex: '#4B0082', rgb: [75, 0, 130] },
-  { id: '11', name: '蓝色', hex: '#4169E1', rgb: [65, 105, 225] },
-  { id: '12', name: '深蓝', hex: '#00008B', rgb: [0, 0, 139] },
-  { id: '13', name: '浅蓝', hex: '#87CEEB', rgb: [135, 206, 235] },
-  { id: '14', name: '天蓝', hex: '#00BFFF', rgb: [0, 191, 255] },
-  { id: '15', name: '青色', hex: '#00CED1', rgb: [0, 206, 209] },
-  { id: '16', name: '绿色', hex: '#228B22', rgb: [34, 139, 34] },
-  { id: '17', name: '深绿', hex: '#006400', rgb: [0, 100, 0] },
-  { id: '18', name: '浅绿', hex: '#90EE90', rgb: [144, 238, 144] },
-  { id: '19', name: '黄绿', hex: '#9ACD32', rgb: [154, 205, 50] },
-  { id: '20', name: '棕色', hex: '#8B4513', rgb: [139, 69, 19] },
-  { id: '21', name: '深棕', hex: '#654321', rgb: [101, 67, 33] },
-  { id: '22', name: '浅棕', hex: '#D2691E', rgb: [210, 105, 30] },
-  { id: '23', name: '肤色', hex: '#FFDAB9', rgb: [255, 218, 185] },
-  { id: '24', name: '米色', hex: '#F5DEB3', rgb: [245, 222, 179] },
-  { id: '25', name: '灰色', hex: '#808080', rgb: [128, 128, 128] },
-  { id: '26', name: '深灰', hex: '#404040', rgb: [64, 64, 64] },
-  { id: '27', name: '浅灰', hex: '#C0C0C0', rgb: [192, 192, 192] },
-  { id: '28', name: '黑色', hex: '#000000', rgb: [0, 0, 0] },
-  { id: '29', name: '金色', hex: '#FFD700', rgb: [255, 215, 0] },
-  { id: '30', name: '银色', hex: '#C0C0C0', rgb: [192, 192, 192] },
-];
-
-// 找到最接近的拼豆颜色
-function findClosestMardColor(r: number, g: number, b: number): typeof MARD_COLORS[0] {
-  let minDistance = Infinity;
-  let closestColor = MARD_COLORS[0];
-
-  for (const color of MARD_COLORS) {
-    const distance = Math.sqrt(
-      Math.pow(r - color.rgb[0], 2) +
-      Math.pow(g - color.rgb[1], 2) +
-      Math.pow(b - color.rgb[2], 2)
-    );
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestColor = color;
-    }
-  }
-
-  return closestColor;
-}
 
 type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
 
@@ -109,8 +54,6 @@ export default function Home() {
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [isPixelating, setIsPixelating] = useState(false);
-  const [perlerPattern, setPerlerPattern] = useState<{ image: string; legend: string } | null>(null);
-  const [isGeneratingPerler, setIsGeneratingPerler] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -385,25 +328,6 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, gridSize, isPixelating]);
 
-  // Generate perler bead pattern
-  const handleGeneratePerler = useCallback(async () => {
-    const sourceImage = animeImage || removedBgImage;
-    if (!sourceImage || isGeneratingPerler) return;
-
-    setIsGeneratingPerler(true);
-    setError(null);
-
-    try {
-      const pattern = await generatePerlerPattern(sourceImage, gridSize);
-      setPerlerPattern(pattern);
-    } catch (err) {
-      console.error('Perler pattern error:', err);
-      setError(err instanceof Error ? err.message : '拼豆图纸生成失败');
-    } finally {
-      setIsGeneratingPerler(false);
-    }
-  }, [removedBgImage, animeImage, gridSize, isGeneratingPerler]);
-
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
 
@@ -426,25 +350,12 @@ export default function Home() {
     document.body.removeChild(link);
   }, [pixelatedImage, gridSize, animeImage]);
 
-  const handleDownloadPerler = useCallback(() => {
-    if (!perlerPattern) return;
-
-    // Download pattern image
-    const link = document.createElement('a');
-    link.href = perlerPattern.image;
-    link.download = `perler-pattern-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [perlerPattern, gridSize, animeImage]);
-
   const handleReset = useCallback(() => {
     setOriginalImage(null);
     setRemovedBgImage(null);
     setAnimeImage(null);
     setFinalImage(null);
     setPixelatedImage(null);
-    setPerlerPattern(null);
     setUseAnimeImage(false);
     setStep('idle');
     setProgress(0);
@@ -653,31 +564,6 @@ export default function Home() {
                     )}
                   </Button>
 
-                  {/* Perler Bead Pattern Button */}
-                  <Button
-                    onClick={handleGeneratePerler}
-                    disabled={isGeneratingPerler || (!removedBgImage && !animeImage)}
-                    variant="outline"
-                    className="w-full border-pink-300 text-pink-600 hover:bg-pink-50 dark:border-pink-700 dark:text-pink-400 dark:hover:bg-pink-950/20"
-                  >
-                    {isGeneratingPerler ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        正在生成拼豆图纸...
-                      </>
-                    ) : perlerPattern ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        重新生成拼豆图纸
-                      </>
-                    ) : (
-                      <>
-                        <Palette className="w-4 h-4 mr-2" />
-                        生成拼豆图纸
-                      </>
-                    )}
-                  </Button>
-
                   {/* Download and Reset */}
                   <div className="flex gap-3">
                     <Button
@@ -855,51 +741,6 @@ export default function Home() {
                   alt="像素化结果"
                   className="max-w-full max-h-full object-contain"
                 />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Perler Bead Pattern Section */}
-        {perlerPattern && (
-          <Card className="mt-6 overflow-hidden">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Palette className="w-5 h-5 text-pink-600" />
-                  拼豆图纸
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
-                  </span>
-                </h2>
-                <Button
-                  onClick={handleDownloadPerler}
-                  size="sm"
-                  className="bg-pink-600 hover:bg-pink-700"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  下载拼豆图纸
-                </Button>
-              </div>
-
-              <div className="space-y-4">
-                {/* Pattern Image */}
-                <div className="aspect-square bg-white rounded-xl overflow-hidden flex items-center justify-center border border-slate-200">
-                  <img
-                    src={perlerPattern.image}
-                    alt="拼豆图纸"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                </div>
-                
-                {/* Color Legend */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                  <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">色号图例</h3>
-                  <div 
-                    className="flex flex-wrap gap-2"
-                    dangerouslySetInnerHTML={{ __html: perlerPattern.legend }}
-                  />
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -1352,173 +1193,6 @@ async function removeBlackBackground(imageUrl: string): Promise<string> {
 
       ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
-    };
-
-    img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = imageUrl;
-  });
-}
-
-async function generatePerlerPattern(imageUrl: string, gridCount: number): Promise<{ image: string; legend: string }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    img.onload = () => {
-      // Create canvas for original image
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d');
-      
-      if (!tempCtx) {
-        reject(new Error('无法创建画布'));
-        return;
-      }
-
-      const imgWidth = img.width;
-      const imgHeight = img.height;
-      
-      tempCanvas.width = imgWidth;
-      tempCanvas.height = imgHeight;
-      tempCtx.drawImage(img, 0, 0, imgWidth, imgHeight);
-      
-      const imageData = tempCtx.getImageData(0, 0, imgWidth, imgHeight);
-      const data = imageData.data;
-
-      // Calculate pixel size based on image dimensions
-      const smallerDimension = Math.min(imgWidth, imgHeight);
-      const pixelSize = Math.floor(smallerDimension / gridCount);
-
-      // Create pixel data array with Mard colors
-      const pixelData: { color: typeof MARD_COLORS[0]; x: number; y: number }[][] = [];
-      const usedColors = new Map<string, typeof MARD_COLORS[0]>();
-
-      for (let y = 0; y < imgHeight; y += pixelSize) {
-        const row: { color: typeof MARD_COLORS[0]; x: number; y: number }[] = [];
-        for (let x = 0; x < imgWidth; x += pixelSize) {
-          // Calculate average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
-          
-          const blockWidth = Math.min(pixelSize, imgWidth - x);
-          const blockHeight = Math.min(pixelSize, imgHeight - y);
-
-          for (let by = 0; by < blockHeight; by++) {
-            for (let bx = 0; bx < blockWidth; bx++) {
-              const idx = ((y + by) * imgWidth + (x + bx)) * 4;
-              totalR += data[idx];
-              totalG += data[idx + 1];
-              totalB += data[idx + 2];
-              totalA += data[idx + 3];
-              pixelCount++;
-            }
-          }
-
-          const avgR = Math.round(totalR / pixelCount);
-          const avgG = Math.round(totalG / pixelCount);
-          const avgB = Math.round(totalB / pixelCount);
-          const avgA = Math.round(totalA / pixelCount);
-
-          // Find closest Mard color or use white for transparent
-          let mardColor: typeof MARD_COLORS[0];
-          if (avgA < 128) {
-            mardColor = MARD_COLORS[0]; // White for transparent
-          } else {
-            mardColor = findClosestMardColor(avgR, avgG, avgB);
-            usedColors.set(mardColor.id, mardColor);
-          }
-          
-          row.push({ color: mardColor, x, y });
-        }
-        pixelData.push(row);
-      }
-
-      // Create the grid canvas (800x800)
-      const gridSize = 800;
-      const gridCanvas = document.createElement('canvas');
-      const gridCtx = gridCanvas.getContext('2d');
-      
-      if (!gridCtx) {
-        reject(new Error('无法创建网格画布'));
-        return;
-      }
-
-      gridCanvas.width = gridSize;
-      gridCanvas.height = gridSize;
-
-      // Draw white background
-      gridCtx.fillStyle = '#ffffff';
-      gridCtx.fillRect(0, 0, gridSize, gridSize);
-
-      // Calculate cell size and image size (0.9 of grid size)
-      const cellSize = gridSize / gridCount;
-      const maxImageSize = gridSize * 0.9;
-      const scaledPixelSize = (maxImageSize / gridCount);
-      
-      // Calculate offset to center the image
-      const offsetX = (gridSize - maxImageSize) / 2;
-      const offsetY = (gridSize - maxImageSize) / 2;
-
-      // Draw each pixel cell with Mard color and color ID
-      gridCtx.font = `${Math.max(8, Math.floor(cellSize / 3))}px Arial`;
-      gridCtx.textAlign = 'center';
-      gridCtx.textBaseline = 'middle';
-
-      const rows = pixelData.length;
-      const cols = pixelData[0]?.length || 0;
-
-      for (let row = 0; row < rows && row < gridCount; row++) {
-        for (let col = 0; col < cols && col < gridCount; col++) {
-          const pixel = pixelData[row][col];
-          const x = offsetX + col * scaledPixelSize;
-          const y = offsetY + row * scaledPixelSize;
-          
-          // Fill cell with color
-          gridCtx.fillStyle = pixel.color.hex;
-          gridCtx.fillRect(x, y, scaledPixelSize, scaledPixelSize);
-          
-          // Draw color ID text (only if not white)
-          if (pixel.color.id !== '01') {
-            // Determine text color based on background brightness
-            const brightness = (pixel.color.rgb[0] * 299 + pixel.color.rgb[1] * 587 + pixel.color.rgb[2] * 114) / 1000;
-            gridCtx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
-            gridCtx.fillText(pixel.color.id, x + scaledPixelSize / 2, y + scaledPixelSize / 2);
-          }
-        }
-      }
-
-      // Draw grid lines
-      gridCtx.strokeStyle = '#d1d5db';
-      gridCtx.lineWidth = 1;
-
-      for (let i = 0; i <= gridCount; i++) {
-        const posX = offsetX + i * scaledPixelSize;
-        const posY = offsetY + i * scaledPixelSize;
-        
-        gridCtx.beginPath();
-        gridCtx.moveTo(posX, offsetY);
-        gridCtx.lineTo(posX, offsetY + maxImageSize);
-        gridCtx.stroke();
-        
-        gridCtx.beginPath();
-        gridCtx.moveTo(offsetX, posY);
-        gridCtx.lineTo(offsetX + maxImageSize, posY);
-        gridCtx.stroke();
-      }
-
-      // Generate legend HTML
-      const sortedColors = Array.from(usedColors.values()).sort((a, b) => a.id.localeCompare(b.id));
-      const legendHtml = sortedColors.map(color => `
-        <div class="flex items-center gap-1 px-2 py-1 bg-white dark:bg-slate-700 rounded border border-slate-200 dark:border-slate-600">
-          <div class="w-4 h-4 rounded" style="background-color: ${color.hex}; border: 1px solid #ccc;"></div>
-          <span class="text-xs font-medium">${color.id}</span>
-          <span class="text-xs text-slate-500">${color.name}</span>
-        </div>
-      `).join('');
-
-      resolve({ 
-        image: gridCanvas.toDataURL('image/png'),
-        legend: legendHtml
-      });
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
