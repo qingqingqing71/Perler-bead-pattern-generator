@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // Use image-to-image transformation with anime style prompt
+    // Use image-to-image transformation with Q-version manga style prompt
     const response = await client.generate({
-      prompt: 'Convert this person to Japanese anime style, 2D illustration, anime character, clean lines, vibrant colors, high quality anime art, studio ghibli style, manga style portrait, keep the same pose and composition',
+      prompt: 'Convert this person to Q-version chibi manga style, cute chibi character, super deformed SD style, big head small body, kawaii anime, simple round features, adorable cartoon style, soft pastel colors, clean vector lines, keep the same pose and composition',
       image: imageUrl,
       size: '2K',
     });
