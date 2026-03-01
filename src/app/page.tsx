@@ -13,15 +13,18 @@ import {
   CheckCircle2,
   AlertCircle,
   Grid3X3,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 
-type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'generating-grid' | 'done';
+type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
 
 const STEP_LABELS: Record<ProcessingStep, string> = {
   idle: '准备就绪',
   uploading: '正在上传图片...',
   'loading-model': '正在加载 AI 模型...',
   'removing-bg': '正在抠图...',
+  'transforming-anime': '正在转换为动漫风格...',
   'generating-grid': '正在生成网格纸...',
   done: '处理完成',
 };
@@ -39,12 +42,15 @@ const GRID_OPTIONS = [
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
+  const [animeImage, setAnimeImage] = useState<string | null>(null);
   const [finalImage, setFinalImage] = useState<string | null>(null);
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [modelLoaded, setModelLoaded] = useState(false);
-  const [gridSize, setGridSize] = useState(25); // Default 25x25
+  const [gridSize, setGridSize] = useState(25);
+  const [useAnimeImage, setUseAnimeImage] = useState(false);
+  const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -102,7 +108,9 @@ export default function Home() {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
+        setAnimeImage(null);
         setFinalImage(null);
+        setUseAnimeImage(false);
         setProgress(0);
         setError(null);
       }
@@ -121,6 +129,8 @@ export default function Home() {
     setProgress(0);
     setFinalImage(null);
     setRemovedBgImage(null);
+    setAnimeImage(null);
+    setUseAnimeImage(false);
 
     try {
       setStep('uploading');
@@ -198,7 +208,6 @@ export default function Home() {
       setStep('generating-grid');
       setProgress(90);
 
-      // Use the selected grid size
       const composedImage = await composeWithGrid(result, gridSize);
       setFinalImage(composedImage);
 
@@ -212,16 +221,55 @@ export default function Home() {
     }
   }, [gridSize]);
 
+  // Transform to anime style
+  const handleTransformAnime = useCallback(async () => {
+    if (!removedBgImage || isTransformingAnime) return;
+
+    setIsTransformingAnime(true);
+    setError(null);
+
+    try {
+      // Extract base64 data from data URL
+      const base64Data = removedBgImage.split(',')[1] || removedBgImage;
+
+      const response = await fetch('/api/transform-anime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: `data:image/png;base64,${base64Data}` }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.imageUrl) {
+        setAnimeImage(data.imageUrl);
+        setUseAnimeImage(true);
+        
+        // Regenerate grid with anime image
+        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
+        setFinalImage(composedImage);
+      } else {
+        setError(data.error || '动漫风格转换失败');
+      }
+    } catch (err) {
+      console.error('Anime transform error:', err);
+      setError(err instanceof Error ? err.message : '动漫风格转换失败');
+    } finally {
+      setIsTransformingAnime(false);
+    }
+  }, [removedBgImage, isTransformingAnime, gridSize]);
+
   // Regenerate with new grid size
   const handleGridSizeChange = useCallback(async (newGridSize: number) => {
     setGridSize(newGridSize);
     
-    if (removedBgImage && (step === 'done' || step === 'generating-grid')) {
+    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
+    
+    if (sourceImage && (step === 'done' || step === 'generating-grid')) {
       setStep('generating-grid');
       setProgress(90);
       
       try {
-        const composedImage = await composeWithGrid(removedBgImage, newGridSize);
+        const composedImage = await composeWithGrid(sourceImage, newGridSize);
         setFinalImage(composedImage);
         setStep('done');
         setProgress(100);
@@ -229,23 +277,49 @@ export default function Home() {
         console.error('Failed to regenerate:', err);
       }
     }
-  }, [removedBgImage, step]);
+  }, [removedBgImage, animeImage, useAnimeImage, step]);
+
+  // Toggle between original and anime image
+  const handleToggleImageSource = useCallback(async () => {
+    if (!removedBgImage) return;
+    
+    const newUseAnime = !useAnimeImage;
+    setUseAnimeImage(newUseAnime);
+    
+    const sourceImage = newUseAnime && animeImage ? animeImage : removedBgImage;
+    
+    if (sourceImage) {
+      setStep('generating-grid');
+      setProgress(90);
+      
+      try {
+        const composedImage = await composeWithGrid(sourceImage, gridSize);
+        setFinalImage(composedImage);
+        setStep('done');
+        setProgress(100);
+      } catch (err) {
+        console.error('Failed to regenerate:', err);
+      }
+    }
+  }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
 
     const link = document.createElement('a');
     link.href = finalImage;
-    link.download = `subject-on-grid-${gridSize}x${gridSize}.png`;
+    link.download = `subject-on-grid-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [finalImage, gridSize]);
+  }, [finalImage, gridSize, useAnimeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
     setRemovedBgImage(null);
+    setAnimeImage(null);
     setFinalImage(null);
+    setUseAnimeImage(false);
     setStep('idle');
     setProgress(0);
     setError(null);
@@ -268,7 +342,7 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            上传照片，AI 自动识别并抠出主体，然后贴到空白网格纸上
+            上传照片，AI 自动识别并抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
           {!modelLoaded && (
             <div className="mt-4 inline-flex items-center gap-2 text-amber-600 dark:text-amber-400">
@@ -385,7 +459,7 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm">处理完成 - {gridSize}×{gridSize} 网格纸</span>
+                  <span className="text-sm">处理完成 - {gridSize}×{gridSize} 网格纸 {useAnimeImage ? '(动漫风格)' : ''}</span>
                 </div>
               )}
 
@@ -402,20 +476,48 @@ export default function Home() {
 
               {/* Action Buttons */}
               {step === 'done' && (
-                <div className="mt-6 flex gap-3">
+                <div className="mt-6 space-y-3">
+                  {/* Anime Transform Button */}
                   <Button
-                    onClick={handleDownload}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    下载结果
-                  </Button>
-                  <Button
+                    onClick={handleTransformAnime}
+                    disabled={isTransformingAnime || !removedBgImage}
                     variant="outline"
-                    onClick={handleReset}
+                    className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
                   >
-                    重新开始
+                    {isTransformingAnime ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在转换为动漫风格...
+                      </>
+                    ) : animeImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成动漫风格
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        转换为动漫风格
+                      </>
+                    )}
                   </Button>
+
+                  {/* Download and Reset */}
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleDownload}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      下载结果
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleReset}
+                    >
+                      重新开始
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -429,7 +531,7 @@ export default function Home() {
                 处理结果
                 {finalImage && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 网格)
+                    ({gridSize}×{gridSize} 网格{useAnimeImage ? ', 动漫风格' : ''})
                   </span>
                 )}
               </h2>
@@ -453,31 +555,21 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Intermediate Results */}
-              {removedBgImage && (
-                <div className="mt-6">
-                  <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                    抠图预览（透明背景）
-                  </h3>
-                  <div 
-                    className="h-32 rounded-lg overflow-hidden"
-                    style={{
-                      backgroundImage: `
-                        linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                        linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                        linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                        linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                      `,
-                      backgroundSize: '20px 20px',
-                      backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                      backgroundColor: '#fff',
-                    }}
-                  >
-                    <img
-                      src={removedBgImage}
-                      alt="抠图结果"
-                      className="w-full h-full object-contain"
-                    />
+              {/* Image Source Toggle */}
+              {animeImage && (
+                <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-purple-700 dark:text-purple-300">
+                      当前使用：<strong>{useAnimeImage ? '动漫风格' : '原图'}</strong>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleToggleImageSource}
+                      className="border-purple-300 text-purple-600 hover:bg-purple-100 dark:border-purple-700 dark:text-purple-400"
+                    >
+                      切换为{useAnimeImage ? '原图' : '动漫风格'}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -485,17 +577,89 @@ export default function Home() {
           </Card>
         </div>
 
+        {/* Preview Cards */}
+        <div className="grid md:grid-cols-2 gap-6 mt-6">
+          {/* Original Cutout Preview */}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                抠图预览（透明背景）
+              </h3>
+              <div 
+                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                style={removedBgImage ? {
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                } : {}}
+              >
+                {removedBgImage ? (
+                  <img
+                    src={removedBgImage}
+                    alt="抠图结果"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <span className="text-slate-400 text-sm">等待抠图...</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Anime Preview */}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                动漫抠图预览
+              </h3>
+              <div 
+                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                style={animeImage ? {
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                } : {}}
+              >
+                {animeImage ? (
+                  <img
+                    src={animeImage}
+                    alt="动漫风格抠图结果"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <span className="text-slate-400 text-sm">
+                    {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Instructions */}
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
           <h3 className="text-lg font-semibold mb-4">使用说明</h3>
-          <div className="grid sm:grid-cols-4 gap-4">
+          <div className="grid sm:grid-cols-5 gap-4">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
                 <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
               </div>
               <div>
-                <p className="font-medium">选择网格规格</p>
-                <p className="text-sm text-slate-500">选择需要的网格纸大小</p>
+                <p className="font-medium">选择网格</p>
+                <p className="text-sm text-slate-500">选择网格规格</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -504,7 +668,7 @@ export default function Home() {
               </div>
               <div>
                 <p className="font-medium">上传图片</p>
-                <p className="text-sm text-slate-500">选择包含人物的照片</p>
+                <p className="text-sm text-slate-500">选择人物照片</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -512,17 +676,26 @@ export default function Home() {
                 <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
               </div>
               <div>
-                <p className="font-medium">AI 自动抠图</p>
-                <p className="text-sm text-slate-500">智能识别并移除背景</p>
+                <p className="font-medium">AI 抠图</p>
+                <p className="text-sm text-slate-500">自动移除背景</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-purple-600 dark:text-purple-400 font-semibold">4</span>
+              </div>
+              <div>
+                <p className="font-medium">动漫转换</p>
+                <p className="text-sm text-slate-500">可选动漫风格</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">4</span>
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
               </div>
               <div>
                 <p className="font-medium">下载结果</p>
-                <p className="text-sm text-slate-500">获取带网格纸背景的图片</p>
+                <p className="text-sm text-slate-500">获取网格图片</p>
               </div>
             </div>
           </div>
@@ -531,7 +704,7 @@ export default function Home() {
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。您可以随时切换网格规格，已抠图的图像会自动重新合成。
+            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
           </p>
         </div>
       </div>
@@ -623,7 +796,7 @@ async function applyBackgroundRemoval(
   });
 }
 
-async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise<string> {
+async function composeWithGrid(imageUrl: string, gridCount: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -637,7 +810,6 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
         return;
       }
 
-      // Fixed canvas size in pixels
       const gridSize = 800;
       const cellSize = gridSize / gridCount;
 
@@ -651,12 +823,11 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
-      // Step 2: Calculate image size (0.9 of grid size, maintaining aspect ratio)
+      // Step 2: Calculate image size (0.9 of grid size)
       const maxImageSize = gridSize * 0.9;
       let imgWidth = img.width;
       let imgHeight = img.height;
       
-      // Scale image to fit within 0.9 of grid size
       if (imgWidth > imgHeight) {
         if (imgWidth > maxImageSize) {
           imgHeight = (imgHeight / imgWidth) * maxImageSize;
@@ -676,28 +847,25 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
       // Draw the image
       ctx.drawImage(img, x, y, imgWidth, imgHeight);
 
-      // Step 3: Draw grid lines ON TOP of the image
+      // Step 3: Draw grid lines ON TOP
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
-      // Draw all grid lines
       for (let i = 0; i <= gridCount; i++) {
         const pos = i * cellSize;
         
-        // Vertical line
         ctx.beginPath();
         ctx.moveTo(pos, 0);
         ctx.lineTo(pos, height);
         ctx.stroke();
         
-        // Horizontal line
         ctx.beginPath();
         ctx.moveTo(0, pos);
         ctx.lineTo(width, pos);
         ctx.stroke();
       }
 
-      // Draw thicker lines every 5 cells (if grid is large enough)
+      // Draw thicker lines every 5 cells
       if (gridCount >= 10) {
         ctx.strokeStyle = '#9ca3af';
         ctx.lineWidth = 2;
@@ -706,13 +874,11 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
         for (let i = 0; i <= gridCount; i += majorInterval) {
           const pos = i * cellSize;
           
-          // Vertical line
           ctx.beginPath();
           ctx.moveTo(pos, 0);
           ctx.lineTo(pos, height);
           ctx.stroke();
           
-          // Horizontal line
           ctx.beginPath();
           ctx.moveTo(0, pos);
           ctx.lineTo(width, pos);
@@ -724,6 +890,6 @@ async function composeWithGrid(removedBgUrl: string, gridCount: number): Promise
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = removedBgUrl;
+    img.src = imageUrl;
   });
 }
