@@ -1452,10 +1452,15 @@ async function generateBeadPattern(
             }
           }
 
-          if (pixelCount > 0 && totalA / pixelCount > 25) { // Skip transparent pixels
+          if (pixelCount > 0 && totalA / pixelCount > 25) {
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
+
+            // Skip white/near-white background pixels (threshold: RGB > 250)
+            if (avgR > 250 && avgG > 250 && avgB > 250) {
+              continue;
+            }
 
             // Find nearest MARD color
             const nearestColor = findClosestMardColor(avgR, avgG, avgB);
@@ -1626,6 +1631,11 @@ async function generateBeadPatternHD(
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
+
+            // Skip white/near-white background pixels (threshold: RGB > 250)
+            if (avgR > 250 && avgG > 250 && avgB > 250) {
+              continue;
+            }
 
             // Find nearest MARD color
             const nearestColor = findClosestMardColor(avgR, avgG, avgB);
