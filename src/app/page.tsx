@@ -309,16 +309,16 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
 
-  // Pixelate image - pixelate the grid result (finalImage)
+  // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    // Use the final grid image for pixelation
-    if (!finalImage || isPixelating) return;
+    const sourceImage = animeImage || removedBgImage;
+    if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(finalImage, gridSize);
+      const pixelated = await pixelateImage(sourceImage, gridSize);
       setPixelatedImage(pixelated);
     } catch (err) {
       console.error('Pixelate error:', err);
@@ -326,7 +326,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [finalImage, gridSize, isPixelating]);
+  }, [removedBgImage, animeImage, gridSize, isPixelating]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -344,11 +344,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+    link.download = `pixelated-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, gridSize, useAnimeImage]);
+  }, [pixelatedImage, gridSize, animeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -542,7 +542,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || !finalImage}
+                    disabled={isPixelating || (!removedBgImage && !animeImage)}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -720,7 +720,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{useAnimeImage ? ', 动漫风格' : ''})
+                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
                 <Button
@@ -735,6 +735,17 @@ export default function Home() {
 
               <div 
                 className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
+                style={{
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                }}
               >
                 <img
                   src={pixelatedImage}
@@ -1031,9 +1042,8 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       resultCanvas.width = width;
       resultCanvas.height = height;
 
-      // Fill with white background (same as grid image)
-      resultCtx.fillStyle = '#ffffff';
-      resultCtx.fillRect(0, 0, width, height);
+      // Clear with transparent background
+      resultCtx.clearRect(0, 0, width, height);
 
       // Calculate pixel size: each pixel corresponds to one grid cell
       // For a grid image (800x800), cellSize = 800 / pixelSize
@@ -1043,7 +1053,7 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
       for (let y = 0; y < height; y += actualPixelSize) {
         for (let x = 0; x < width; x += actualPixelSize) {
           // Calculate the average color for this pixel block
-          let totalR = 0, totalG = 0, totalB = 0;
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
           
           const blockWidth = Math.min(actualPixelSize, width - x);
@@ -1055,6 +1065,7 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
               totalR += data[idx];
               totalG += data[idx + 1];
               totalB += data[idx + 2];
+              totalA += data[idx + 3];
               pixelCount++;
             }
           }
@@ -1063,17 +1074,18 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
           const avgR = Math.round(totalR / pixelCount);
           const avgG = Math.round(totalG / pixelCount);
           const avgB = Math.round(totalB / pixelCount);
+          const avgA = Math.round(totalA / pixelCount);
 
           // Draw the pixel block
-          resultCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+          resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
           resultCtx.fillRect(x, y, blockWidth, blockHeight);
         }
       }
 
-      // Draw grid lines on top
+      // Draw grid lines on top (black)
       const cellSize = width / pixelSize;
       
-      resultCtx.strokeStyle = '#d1d5db';
+      resultCtx.strokeStyle = '#000000';
       resultCtx.lineWidth = 1;
 
       for (let i = 0; i <= pixelSize; i++) {
@@ -1092,7 +1104,7 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
 
       // Draw thicker lines every 5 cells
       if (pixelSize >= 10) {
-        resultCtx.strokeStyle = '#9ca3af';
+        resultCtx.strokeStyle = '#000000';
         resultCtx.lineWidth = 2;
         
         const majorInterval = 5;
