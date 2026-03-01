@@ -1314,7 +1314,7 @@ async function removeBlackBackground(imageUrl: string): Promise<string> {
   });
 }
 
-// Generate bead pattern with MARD color codes
+// Generate bead pattern with MARD color codes (based on pixelated image)
 async function generateBeadPattern(
   imageUrl: string,
   gridSize: number
@@ -1335,6 +1335,8 @@ async function generateBeadPattern(
       // Set canvas size to image size
       canvas.width = img.width;
       canvas.height = img.height;
+      
+      // Draw the original pixelated image (keep it as is)
       ctx.drawImage(img, 0, 0);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1357,9 +1359,12 @@ async function generateBeadPattern(
         width: number;
         height: number;
         color: MardColor;
+        avgR: number;
+        avgG: number;
+        avgB: number;
       }> = [];
 
-      // Process each pixel block
+      // Process each pixel block - just get colors and find MARD codes
       for (let gridY = 0; gridY < gridSize; gridY++) {
         for (let gridX = 0; gridX < gridSize; gridX++) {
           // Calculate pixel block boundaries
@@ -1396,17 +1401,16 @@ async function generateBeadPattern(
               colorMap.set(nearestColor.code, nearestColor);
             }
 
-            // Fill the block with MARD color
-            ctx.fillStyle = nearestColor.hex;
-            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-            
             // Store block info for text drawing
             blocksInfo.push({
               x: x1,
               y: y1,
               width: x2 - x1,
               height: y2 - y1,
-              color: nearestColor
+              color: nearestColor,
+              avgR,
+              avgG,
+              avgB
             });
           }
         }
@@ -1418,8 +1422,7 @@ async function generateBeadPattern(
       
       for (const block of blocksInfo) {
         // Determine text color based on background brightness
-        const rgb = hexToRgb(block.color.hex);
-        const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+        const brightness = (block.avgR * 299 + block.avgG * 587 + block.avgB * 114) / 1000;
         ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
         
         ctx.font = `bold ${fontSize}px Arial`;
@@ -1460,14 +1463,4 @@ async function generateBeadPattern(
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = imageUrl;
   });
-}
-
-// Helper function to convert hex to RGB
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : { r: 0, g: 0, b: 0 };
 }
