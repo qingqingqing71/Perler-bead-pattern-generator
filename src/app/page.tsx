@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Grid2X2,
   Beaker,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 
@@ -59,6 +62,7 @@ export default function Home() {
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
+  const [beadPatternZoom, setBeadPatternZoom] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -373,6 +377,33 @@ export default function Home() {
     link.click();
     document.body.removeChild(link);
   }, [pixelatedImage, gridSize, animeImage]);
+
+  const handleDownloadBeadPattern = useCallback(async () => {
+    if (!pixelatedImage) return;
+
+    try {
+      // Generate high-resolution bead pattern (3x scale for better readability)
+      const result = await generateBeadPatternHD(pixelatedImage, gridSize, 3);
+      
+      const link = document.createElement('a');
+      link.href = result.image;
+      link.download = `bead-pattern-hd-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('HD download error:', err);
+      // Fallback to regular image
+      if (beadPatternImage) {
+        const link = document.createElement('a');
+        link.href = beadPatternImage;
+        link.download = `bead-pattern-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    }
+  }, [pixelatedImage, gridSize, animeImage, beadPatternImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -809,32 +840,64 @@ export default function Home() {
                     ({gridSize}×{gridSize} 格{animeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
-                <Button
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = beadPatternImage;
-                    link.download = `bead-pattern-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                  size="sm"
-                  className="bg-orange-600 hover:bg-orange-700"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  下载拼豆图纸
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Zoom Controls */}
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                    <Button
+                      onClick={() => setBeadPatternZoom(Math.max(0.5, beadPatternZoom - 0.25))}
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      disabled={beadPatternZoom <= 0.5}
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </Button>
+                    <span className="text-sm w-12 text-center">{Math.round(beadPatternZoom * 100)}%</span>
+                    <Button
+                      onClick={() => setBeadPatternZoom(Math.min(4, beadPatternZoom + 0.25))}
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      disabled={beadPatternZoom >= 4}
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      onClick={() => setBeadPatternZoom(1)}
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      title="重置缩放"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <Button
+                    onClick={handleDownloadBeadPattern}
+                    size="sm"
+                    className="bg-orange-600 hover:bg-orange-700"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    下载高清图纸
+                  </Button>
+                </div>
               </div>
 
               <div 
-                className="rounded-xl overflow-hidden flex items-center justify-center"
-                style={{ maxWidth: '100%' }}
+                className="rounded-xl overflow-auto bg-slate-50 dark:bg-slate-900 p-4"
+                style={{ maxHeight: '600px' }}
               >
-                <img
-                  src={beadPatternImage}
-                  alt="拼豆图纸"
-                  className="max-w-full object-contain"
-                />
+                <div 
+                  className="origin-top-left inline-block"
+                  style={{ transform: `scale(${beadPatternZoom})`, transformOrigin: 'top left' }}
+                >
+                  <img
+                    src={beadPatternImage}
+                    alt="拼豆图纸"
+                    className="max-w-none"
+                    style={{ width: '800px' }}
+                  />
+                </div>
               </div>
 
               {/* Color Legend */}
@@ -1450,6 +1513,197 @@ async function generateBeadPattern(
         ctx.moveTo(0, pos);
         ctx.lineTo(canvas.width, pos);
         ctx.stroke();
+      }
+
+      // Convert color map to legend array
+      const legend = Array.from(colorMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+
+      resolve({
+        image: canvas.toDataURL('image/png'),
+        legend
+      });
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+// Generate high-definition bead pattern for download
+async function generateBeadPatternHD(
+  imageUrl: string,
+  gridSize: number,
+  scale: number = 3
+): Promise<{ image: string; legend: MardColor[] }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      // Create HD canvas (scaled up for better text readability)
+      const baseSize = 800;
+      const hdSize = baseSize * scale;
+      const pixelSize = hdSize / gridSize;
+      
+      canvas.width = hdSize;
+      canvas.height = hdSize;
+      
+      // Fill white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, hdSize, hdSize);
+
+      // Get source image data
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) {
+        reject(new Error('无法创建源画布'));
+        return;
+      }
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      srcCtx.drawImage(img, 0, 0);
+      
+      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
+      const srcData = srcImageData.data;
+      
+      // Color tracking for legend
+      const colorMap = new Map<string, MardColor>();
+
+      // Calculate font size based on pixel size - larger for HD
+      const fontSize = Math.max(12, Math.floor(pixelSize * 0.4));
+      
+      // Store blocks info for drawing text later
+      const blocksInfo: Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        color: MardColor;
+        avgR: number;
+        avgG: number;
+        avgB: number;
+      }> = [];
+
+      // Process each pixel block
+      for (let gridY = 0; gridY < gridSize; gridY++) {
+        for (let gridX = 0; gridX < gridSize; gridX++) {
+          // Calculate pixel block boundaries in HD canvas
+          const x1 = Math.floor(gridX * pixelSize);
+          const y1 = Math.floor(gridY * pixelSize);
+          const x2 = Math.floor((gridX + 1) * pixelSize);
+          const y2 = Math.floor((gridY + 1) * pixelSize);
+
+          // Calculate corresponding source region
+          const srcX1 = Math.floor(gridX / gridSize * img.width);
+          const srcY1 = Math.floor(gridY / gridSize * img.height);
+          const srcX2 = Math.floor((gridX + 1) / gridSize * img.width);
+          const srcY2 = Math.floor((gridY + 1) / gridSize * img.height);
+
+          // Calculate average color from source region
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+
+          for (let sy = srcY1; sy < srcY2; sy++) {
+            for (let sx = srcX1; sx < srcX2; sx++) {
+              const idx = (sy * img.width + sx) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
+              pixelCount++;
+            }
+          }
+
+          if (pixelCount > 0 && totalA / pixelCount > 25) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+
+            // Find nearest MARD color
+            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+            
+            // Track color for legend
+            if (!colorMap.has(nearestColor.code)) {
+              colorMap.set(nearestColor.code, nearestColor);
+            }
+
+            // Fill the block with original average color
+            ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+
+            // Store block info for text drawing
+            blocksInfo.push({
+              x: x1,
+              y: y1,
+              width: x2 - x1,
+              height: y2 - y1,
+              color: nearestColor,
+              avgR,
+              avgG,
+              avgB
+            });
+          }
+        }
+      }
+
+      // Draw MARD color codes on each block
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      for (const block of blocksInfo) {
+        const brightness = (block.avgR * 299 + block.avgG * 587 + block.avgB * 114) / 1000;
+        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+        
+        ctx.font = `bold ${fontSize}px Arial`;
+        const centerX = block.x + block.width / 2;
+        const centerY = block.y + block.height / 2;
+        ctx.fillText(block.color.code, centerX, centerY);
+      }
+
+      // Draw grid lines on top
+      ctx.strokeStyle = '#d1d5db';
+      ctx.lineWidth = scale;
+
+      for (let i = 0; i <= gridSize; i++) {
+        const pos = Math.floor(i * pixelSize);
+        
+        ctx.beginPath();
+        ctx.moveTo(pos, 0);
+        ctx.lineTo(pos, hdSize);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(0, pos);
+        ctx.lineTo(hdSize, pos);
+        ctx.stroke();
+      }
+
+      // Draw thicker lines every 5 cells for easier counting
+      if (gridSize >= 10) {
+        ctx.strokeStyle = '#9ca3af';
+        ctx.lineWidth = scale * 2;
+        
+        for (let i = 0; i <= gridSize; i += 5) {
+          const pos = Math.floor(i * pixelSize);
+          
+          ctx.beginPath();
+          ctx.moveTo(pos, 0);
+          ctx.lineTo(pos, hdSize);
+          ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.moveTo(0, pos);
+          ctx.lineTo(hdSize, pos);
+          ctx.stroke();
+        }
       }
 
       // Convert color map to legend array
