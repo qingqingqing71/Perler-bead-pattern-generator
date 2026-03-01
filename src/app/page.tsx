@@ -241,11 +241,111 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        setAnimeImage(data.imageUrl);
+        // Get the segmenter for removing background from anime image
+        let segmenter = modelRef.current.segmenter;
+        if (!segmenter) {
+          const tf = await import('@tensorflow/tfjs');
+          const bodySegmentation = await import('@tensorflow-models/body-segmentation');
+          await tf.ready();
+          const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
+          segmenter = await bodySegmentation.createSegmenter(model, {
+            runtime: 'tfjs',
+            modelType: 'general',
+          });
+          modelRef.current = { segmenter, loaded: true };
+        }
+
+        // Load anime image and remove its background
+        const animeImg = new Image();
+        animeImg.crossOrigin = 'anonymous';
+        
+        const animeRemovedBg = await new Promise<string>((resolve, reject) => {
+          animeImg.onload = async () => {
+            try {
+              const animeWidth = animeImg.width;
+              const animeHeight = animeImg.height;
+              
+              // Segment the anime image
+              const segmentation = await segmenter!.segmentPeople(animeImg, {
+                flipHorizontal: false,
+                multiSegment: false,
+              });
+              
+              if (!segmentation || segmentation.length === 0) {
+                // If segmentation fails, just use the original anime image
+                resolve(data.imageUrl);
+                return;
+              }
+              
+              const mask = await segmentation[0].mask.toImageData();
+              
+              // Create a canvas with the anime image
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                resolve(data.imageUrl);
+                return;
+              }
+              
+              canvas.width = animeWidth;
+              canvas.height = animeHeight;
+              ctx.drawImage(animeImg, 0, 0, animeWidth, animeHeight);
+              
+              const imageData = ctx.getImageData(0, 0, animeWidth, animeHeight);
+              const imgData = imageData.data;
+              
+              // Scale mask to match image size
+              const maskCanvas = document.createElement('canvas');
+              const maskCtx = maskCanvas.getContext('2d');
+              if (!maskCtx) {
+                resolve(data.imageUrl);
+                return;
+              }
+              maskCanvas.width = animeWidth;
+              maskCanvas.height = animeHeight;
+              
+              const tempMaskCanvas = document.createElement('canvas');
+              tempMaskCanvas.width = mask.width;
+              tempMaskCanvas.height = mask.height;
+              const tempMaskCtx = tempMaskCanvas.getContext('2d');
+              if (!tempMaskCtx) {
+                resolve(data.imageUrl);
+                return;
+              }
+              tempMaskCtx.putImageData(mask, 0, 0);
+              
+              maskCtx.imageSmoothingEnabled = true;
+              maskCtx.imageSmoothingQuality = 'high';
+              maskCtx.drawImage(tempMaskCanvas, 0, 0, mask.width, mask.height, 0, 0, animeWidth, animeHeight);
+              const scaledMaskData = maskCtx.getImageData(0, 0, animeWidth, animeHeight);
+              const maskData = scaledMaskData.data;
+
+              // Apply mask to remove background
+              for (let i = 0; i < imgData.length; i += 4) {
+                const maskValue = maskData[i];
+                let alpha = Math.min(255, Math.max(0, maskValue));
+                imgData[i + 3] = alpha;
+              }
+
+              ctx.putImageData(imageData, 0, 0);
+              resolve(canvas.toDataURL('image/png'));
+            } catch (err) {
+              console.error('Error removing anime background:', err);
+              resolve(data.imageUrl);
+            }
+          };
+          animeImg.onerror = () => {
+            console.error('Failed to load anime image');
+            resolve(data.imageUrl);
+          };
+          animeImg.src = data.imageUrl;
+        });
+
+        setAnimeImage(animeRemovedBg);
         setUseAnimeImage(true);
         
-        // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
+        // Regenerate grid with anime image (already has transparent background)
+        const composedImage = await composeWithGrid(animeRemovedBg, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
