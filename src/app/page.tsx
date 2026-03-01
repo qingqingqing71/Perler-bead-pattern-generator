@@ -244,13 +244,14 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Directly use the anime image without re-segmentation
-        // This maintains consistency with the original cutout
-        setAnimeImage(data.imageUrl);
+        // Remove black background from anime image
+        const cleanedAnimeImage = await removeBlackBackground(data.imageUrl);
+        
+        setAnimeImage(cleanedAnimeImage);
         setUseAnimeImage(true);
         
         // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(data.imageUrl, gridSize);
+        const composedImage = await composeWithGrid(cleanedAnimeImage, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
@@ -1069,7 +1070,90 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
         }
       }
 
+      // Draw grid lines on top
+      const cellSize = width / pixelSize;
+      
+      resultCtx.strokeStyle = '#d1d5db';
+      resultCtx.lineWidth = 1;
+
+      for (let i = 0; i <= pixelSize; i++) {
+        const pos = i * cellSize;
+        
+        resultCtx.beginPath();
+        resultCtx.moveTo(pos, 0);
+        resultCtx.lineTo(pos, height);
+        resultCtx.stroke();
+        
+        resultCtx.beginPath();
+        resultCtx.moveTo(0, pos);
+        resultCtx.lineTo(width, pos);
+        resultCtx.stroke();
+      }
+
+      // Draw thicker lines every 5 cells
+      if (pixelSize >= 10) {
+        resultCtx.strokeStyle = '#9ca3af';
+        resultCtx.lineWidth = 2;
+        
+        const majorInterval = 5;
+        for (let i = 0; i <= pixelSize; i += majorInterval) {
+          const pos = i * cellSize;
+          
+          resultCtx.beginPath();
+          resultCtx.moveTo(pos, 0);
+          resultCtx.lineTo(pos, height);
+          resultCtx.stroke();
+          
+          resultCtx.beginPath();
+          resultCtx.moveTo(0, pos);
+          resultCtx.lineTo(width, pos);
+          resultCtx.stroke();
+        }
+      }
+
       resolve(resultCanvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+async function removeBlackBackground(imageUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      // Remove black/near-black pixels (make them transparent)
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // Check if pixel is black or near-black (threshold: 30)
+        if (r < 30 && g < 30 && b < 30) {
+          data[i + 3] = 0; // Set alpha to 0 (transparent)
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
