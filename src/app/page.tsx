@@ -1071,10 +1071,10 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
         }
       }
 
-      // Draw grid lines on top (black)
+      // Draw grid lines on top (same style as grid result)
       const cellSize = width / pixelSize;
       
-      resultCtx.strokeStyle = '#000000';
+      resultCtx.strokeStyle = '#d1d5db';
       resultCtx.lineWidth = 1;
 
       for (let i = 0; i <= pixelSize; i++) {
@@ -1093,7 +1093,7 @@ async function pixelateImage(imageUrl: string, pixelSize: number): Promise<strin
 
       // Draw thicker lines every 5 cells
       if (pixelSize >= 10) {
-        resultCtx.strokeStyle = '#000000';
+        resultCtx.strokeStyle = '#9ca3af';
         resultCtx.lineWidth = 2;
         
         const majorInterval = 5;
