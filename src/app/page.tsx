@@ -16,7 +16,9 @@ import {
   Sparkles,
   RefreshCw,
   Grid2X2,
+  Beaker,
 } from 'lucide-react';
+import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 
 type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
 
@@ -54,6 +56,9 @@ export default function Home() {
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [isPixelating, setIsPixelating] = useState(false);
+  const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
+  const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
+  const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -328,6 +333,25 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
 
+  // Generate bead pattern from pixelated image
+  const handleGenerateBeadPattern = useCallback(async () => {
+    if (!pixelatedImage || isGeneratingBeadPattern) return;
+
+    setIsGeneratingBeadPattern(true);
+    setError(null);
+
+    try {
+      const result = await generateBeadPattern(pixelatedImage, gridSize);
+      setBeadPatternImage(result.image);
+      setBeadPatternLegend(result.legend);
+    } catch (err) {
+      console.error('Bead pattern error:', err);
+      setError(err instanceof Error ? err.message : '拼豆图纸生成失败');
+    } finally {
+      setIsGeneratingBeadPattern(false);
+    }
+  }, [pixelatedImage, gridSize, isGeneratingBeadPattern]);
+
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
 
@@ -356,6 +380,8 @@ export default function Home() {
     setAnimeImage(null);
     setFinalImage(null);
     setPixelatedImage(null);
+    setBeadPatternImage(null);
+    setBeadPatternLegend([]);
     setUseAnimeImage(false);
     setStep('idle');
     setProgress(0);
@@ -564,6 +590,31 @@ export default function Home() {
                     )}
                   </Button>
 
+                  {/* Bead Pattern Button */}
+                  <Button
+                    onClick={handleGenerateBeadPattern}
+                    disabled={isGeneratingBeadPattern || !pixelatedImage}
+                    variant="outline"
+                    className="w-full border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/20"
+                  >
+                    {isGeneratingBeadPattern ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在生成拼豆图纸...
+                      </>
+                    ) : beadPatternImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成拼豆图纸
+                      </>
+                    ) : (
+                      <>
+                        <Beaker className="w-4 h-4 mr-2" />
+                        生成拼豆图纸
+                      </>
+                    )}
+                  </Button>
+
                   {/* Download and Reset */}
                   <div className="flex gap-3">
                     <Button
@@ -742,6 +793,68 @@ export default function Home() {
                   className="max-w-full max-h-full object-contain"
                 />
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Bead Pattern Result Section */}
+        {beadPatternImage && (
+          <Card className="mt-6 overflow-hidden">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Beaker className="w-5 h-5 text-orange-600" />
+                  拼豆图纸
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({gridSize}×{gridSize} 格{animeImage ? ', 动漫风格' : ''})
+                  </span>
+                </h2>
+                <Button
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.href = beadPatternImage;
+                    link.download = `bead-pattern-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }}
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  下载拼豆图纸
+                </Button>
+              </div>
+
+              <div 
+                className="rounded-xl overflow-hidden flex items-center justify-center"
+                style={{ maxWidth: '100%' }}
+              >
+                <img
+                  src={beadPatternImage}
+                  alt="拼豆图纸"
+                  className="max-w-full object-contain"
+                />
+              </div>
+
+              {/* Color Legend */}
+              {beadPatternLegend.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {beadPatternLegend.map((color, index) => (
+                      <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                        <div 
+                          className="w-6 h-6 rounded border border-slate-300"
+                          style={{ backgroundColor: color.hex }}
+                        />
+                        <span className="text-sm font-medium">{color.code}</span>
+                        <span className="text-xs text-slate-500">{color.hex}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -1195,6 +1308,117 @@ async function removeBlackBackground(imageUrl: string): Promise<string> {
 
       ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+// Generate bead pattern with MARD color codes
+async function generateBeadPattern(
+  imageUrl: string,
+  gridSize: number
+): Promise<{ image: string; legend: MardColor[] }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      // Set canvas size to image size
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      // Calculate pixel size (same as pixelation logic)
+      const gridPixelSize = gridSize * 10;
+      const pixelSize = gridPixelSize / gridSize;
+      
+      // Color tracking for legend
+      const colorMap = new Map<string, MardColor>();
+
+      // Process each pixel block
+      for (let gridY = 0; gridY < gridSize; gridY++) {
+        for (let gridX = 0; gridX < gridSize; gridX++) {
+          // Calculate pixel block boundaries
+          const x1 = Math.floor(gridX * pixelSize);
+          const y1 = Math.floor(gridY * pixelSize);
+          const x2 = Math.min(Math.floor((gridX + 1) * pixelSize), canvas.width);
+          const y2 = Math.min(Math.floor((gridY + 1) * pixelSize), canvas.height);
+
+          // Calculate average color for this block
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+
+          for (let y = y1; y < y2; y++) {
+            for (let x = x1; x < x2; x++) {
+              const idx = (y * canvas.width + x) * 4;
+              totalR += data[idx];
+              totalG += data[idx + 1];
+              totalB += data[idx + 2];
+              totalA += data[idx + 3];
+              pixelCount++;
+            }
+          }
+
+          if (pixelCount > 0 && totalA / pixelCount > 25) { // Skip transparent pixels
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+
+            // Find nearest MARD color
+            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+            
+            // Track color for legend
+            if (!colorMap.has(nearestColor.code)) {
+              colorMap.set(nearestColor.code, nearestColor);
+            }
+
+            // Fill the block with MARD color
+            ctx.fillStyle = nearestColor.hex;
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+          }
+        }
+      }
+
+      // Draw grid lines on top
+      ctx.strokeStyle = '#d1d5db';
+      ctx.lineWidth = 1;
+
+      for (let i = 0; i <= gridSize; i++) {
+        const pos = Math.floor(i * pixelSize);
+        
+        // Vertical line
+        ctx.beginPath();
+        ctx.moveTo(pos, 0);
+        ctx.lineTo(pos, canvas.height);
+        ctx.stroke();
+        
+        // Horizontal line
+        ctx.beginPath();
+        ctx.moveTo(0, pos);
+        ctx.lineTo(canvas.width, pos);
+        ctx.stroke();
+      }
+
+      // Convert color map to legend array
+      const legend = Array.from(colorMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+
+      resolve({
+        image: canvas.toDataURL('image/png'),
+        legend
+      });
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
