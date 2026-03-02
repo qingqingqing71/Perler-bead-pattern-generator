@@ -17,9 +17,6 @@ import {
   RefreshCw,
   Grid2X2,
   Beaker,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 
@@ -62,7 +59,6 @@ export default function Home() {
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
-  const [beadPatternZoom, setBeadPatternZoom] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -841,64 +837,24 @@ export default function Home() {
                     ({gridSize}×{gridSize} 格{animeImage ? ', 动漫风格' : ''})
                   </span>
                 </h2>
-                <div className="flex items-center gap-2">
-                  {/* Zoom Controls */}
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
-                    <Button
-                      onClick={() => setBeadPatternZoom(Math.max(0.5, beadPatternZoom - 0.25))}
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      disabled={beadPatternZoom <= 0.5}
-                    >
-                      <ZoomOut className="w-4 h-4" />
-                    </Button>
-                    <span className="text-sm w-12 text-center">{Math.round(beadPatternZoom * 100)}%</span>
-                    <Button
-                      onClick={() => setBeadPatternZoom(Math.min(4, beadPatternZoom + 0.25))}
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      disabled={beadPatternZoom >= 4}
-                    >
-                      <ZoomIn className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      onClick={() => setBeadPatternZoom(1)}
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      title="重置缩放"
-                    >
-                      <Maximize2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <Button
-                    onClick={handleDownloadBeadPattern}
-                    size="sm"
-                    className="bg-orange-600 hover:bg-orange-700"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    下载高清图纸
-                  </Button>
-                </div>
+                <Button
+                  onClick={handleDownloadBeadPattern}
+                  size="sm"
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  下载高清图纸
+                </Button>
               </div>
 
               <div 
-                className="rounded-xl overflow-auto bg-slate-50 dark:bg-slate-900 p-4"
-                style={{ maxHeight: '600px' }}
+                className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
               >
-                <div 
-                  className="origin-top-left inline-block"
-                  style={{ transform: `scale(${beadPatternZoom})`, transformOrigin: 'top left' }}
-                >
-                  <img
-                    src={beadPatternImage}
-                    alt="拼豆图纸"
-                    className="max-w-none"
-                    style={{ width: '800px' }}
-                  />
-                </div>
+                <img
+                  src={beadPatternImage}
+                  alt="拼豆图纸"
+                  className="max-w-full max-h-full object-contain"
+                />
               </div>
 
               {/* Color Legend */}
