@@ -1563,6 +1563,7 @@ async function generateBeadPatternHD(
 
       // Color tracking for legend
       const colorMap = new Map<string, MardColor>();
+      const colorUsageCount = new Map<string, number>(); // Track usage frequency
 
       // Calculate font size based on cell size - larger for HD
       const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
@@ -1579,13 +1580,18 @@ async function generateBeadPatternHD(
         avgB: number;
       }> = [];
 
-      // Pixelate the subject and draw MARD colors
+      // First pass: collect all block colors and count usage
+      const rawBlocks: Array<{
+        gridX: number;
+        gridY: number;
+        avgR: number;
+        avgG: number;
+        avgB: number;
+        nearestColor: MardColor;
+      }> = [];
+
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
-          // Calculate pixel block position on canvas
-          const x1 = offsetX + gridX * cellSize;
-          const y1 = offsetY + gridY * cellSize;
-          
           // Calculate corresponding source region
           const srcX1 = Math.floor(gridX / cellCountX * img.width);
           const srcY1 = Math.floor(gridY / cellCountY * img.height);
@@ -1616,28 +1622,96 @@ async function generateBeadPatternHD(
             // Find nearest MARD color
             const nearestColor = findClosestMardColor(avgR, avgG, avgB);
             
-            // Track color for legend
-            if (!colorMap.has(nearestColor.code)) {
-              colorMap.set(nearestColor.code, nearestColor);
-            }
-
-            // Fill the block with original average color
-            ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-            ctx.fillRect(x1, y1, cellSize, cellSize);
-
-            // Store block info for text drawing
-            blocksInfo.push({
-              x: x1,
-              y: y1,
-              width: cellSize,
-              height: cellSize,
-              color: nearestColor,
-              avgR,
-              avgG,
-              avgB
-            });
+            rawBlocks.push({ gridX, gridY, avgR, avgG, avgB, nearestColor });
+            
+            // Count usage
+            const count = colorUsageCount.get(nearestColor.code) || 0;
+            colorUsageCount.set(nearestColor.code, count + 1);
           }
         }
+      }
+
+      // Limit to max 20 colors by keeping most frequently used
+      const MAX_COLORS = 20;
+      let selectedColors: MardColor[];
+      
+      if (colorUsageCount.size <= MAX_COLORS) {
+        // Use all colors if within limit
+        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
+          const block = rawBlocks.find(b => b.nearestColor.code === code)!;
+          return block.nearestColor;
+        });
+      } else {
+        // Sort by usage count and keep top 20
+        const sortedColors = Array.from(colorUsageCount.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_COLORS)
+          .map(([code]) => {
+            const block = rawBlocks.find(b => b.nearestColor.code === code)!;
+            return block.nearestColor;
+          });
+        selectedColors = sortedColors;
+      }
+
+      const selectedColorCodes = new Set(selectedColors.map(c => c.code));
+
+      // Helper function to parse hex to RGB
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 0, g: 0, b: 0 };
+      };
+
+      // Second pass: draw blocks with limited colors
+      for (const block of rawBlocks) {
+        const x1 = offsetX + block.gridX * cellSize;
+        const y1 = offsetY + block.gridY * cellSize;
+        
+        let finalColor = block.nearestColor;
+        
+        // If color not in selected colors, find closest from selected
+        if (!selectedColorCodes.has(block.nearestColor.code)) {
+          let minDist = Infinity;
+          for (const color of selectedColors) {
+            const rgb = hexToRgb(color.hex);
+            const dist = Math.sqrt(
+              Math.pow(block.avgR - rgb.r, 2) +
+              Math.pow(block.avgG - rgb.g, 2) +
+              Math.pow(block.avgB - rgb.b, 2)
+            );
+            if (dist < minDist) {
+              minDist = dist;
+              finalColor = color;
+            }
+          }
+        }
+        
+        // Get RGB values for the final color
+        const finalRgb = hexToRgb(finalColor.hex);
+
+        // Track color for legend
+        if (!colorMap.has(finalColor.code)) {
+          colorMap.set(finalColor.code, finalColor);
+        }
+
+        // Fill the block with the final color
+        ctx.fillStyle = finalColor.hex;
+        ctx.fillRect(x1, y1, cellSize, cellSize);
+
+        // Store block info for text drawing
+        blocksInfo.push({
+          x: x1,
+          y: y1,
+          width: cellSize,
+          height: cellSize,
+          color: finalColor,
+          avgR: finalRgb.r,
+          avgG: finalRgb.g,
+          avgB: finalRgb.b
+        });
       }
 
       // Draw MARD color codes on subject blocks
@@ -1654,9 +1728,9 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
 
-      // Draw grid lines
+      // Draw grid lines (thinner for cleaner look)
       ctx.strokeStyle = '#d1d5db';
-      ctx.lineWidth = scale;
+      ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
 
       for (let i = 0; i <= gridSize; i++) {
         const pos = marginSize + i * cellSize;
@@ -1677,7 +1751,7 @@ async function generateBeadPatternHD(
       // Draw thicker lines every 5 cells for easier counting
       if (gridSize >= 10) {
         ctx.strokeStyle = '#9ca3af';
-        ctx.lineWidth = scale * 2;
+        ctx.lineWidth = Math.max(1.5, Math.floor(scale * 0.75));
         
         for (let i = 0; i <= gridSize; i += 5) {
           const pos = marginSize + i * cellSize;
