@@ -44,14 +44,18 @@ const GRID_OPTIONS = [
 ];
 
 // Advanced background removal with improved accuracy
-// Uses edge sampling, color clustering, and morphological operations
-const removeBackgroundSimple = (
+// Uses edge sampling, color clustering, and async processing to avoid UI blocking
+const removeBackgroundSimple = async (
   imageData: ImageData,
-  tolerance: number = 30
-): ImageData => {
+  tolerance: number = 30,
+  onProgress?: (progress: number) => void
+): Promise<ImageData> => {
   const { width, height, data } = imageData;
   const result = new ImageData(width, height);
   const resultData = result.data;
+  
+  // Helper to yield to main thread
+  const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
   
   // Get pixel color at position
   const getPixel = (x: number, y: number): [number, number, number] => {
@@ -59,144 +63,174 @@ const removeBackgroundSimple = (
     return [data[i], data[i + 1], data[i + 2]];
   };
   
-  // Sample background colors from multiple edge points
-  const samplePoints: [number, number][] = [];
-  const edgeStep = Math.max(1, Math.floor(Math.min(width, height) / 20));
+  // Step 1: Sample background colors from edges (fast)
+  onProgress?.(5);
+  const bgColors: [number, number, number][] = [];
+  const edgeStep = Math.max(1, Math.floor(Math.min(width, height) / 15));
   
-  // Sample from all edges
   for (let x = 0; x < width; x += edgeStep) {
-    samplePoints.push([x, 0]);                    // Top edge
-    samplePoints.push([x, height - 1]);           // Bottom edge
+    for (const color of [getPixel(x, 0), getPixel(x, height - 1)]) {
+      let isUnique = true;
+      for (const existing of bgColors) {
+        const dr = Math.abs(color[0] - existing[0]);
+        const dg = Math.abs(color[1] - existing[1]);
+        const db = Math.abs(color[2] - existing[2]);
+        if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
+          isUnique = false;
+          break;
+        }
+      }
+      if (isUnique) bgColors.push(color);
+    }
   }
   for (let y = 0; y < height; y += edgeStep) {
-    samplePoints.push([0, y]);                    // Left edge
-    samplePoints.push([width - 1, y]);            // Right edge
-  }
-  
-  // Collect unique background colors using clustering
-  const bgColors: [number, number, number][] = [];
-  
-  for (const [x, y] of samplePoints) {
-    const color = getPixel(x, y);
-    let isUnique = true;
-    
-    // Check if similar color already exists
-    for (const existing of bgColors) {
-      const dr = Math.abs(color[0] - existing[0]);
-      const dg = Math.abs(color[1] - existing[1]);
-      const db = Math.abs(color[2] - existing[2]);
-      if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
-        isUnique = false;
-        break;
+    for (const color of [getPixel(0, y), getPixel(width - 1, y)]) {
+      let isUnique = true;
+      for (const existing of bgColors) {
+        const dr = Math.abs(color[0] - existing[0]);
+        const dg = Math.abs(color[1] - existing[1]);
+        const db = Math.abs(color[2] - existing[2]);
+        if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
+          isUnique = false;
+          break;
+        }
       }
-    }
-    
-    if (isUnique) {
-      bgColors.push(color);
+      if (isUnique) bgColors.push(color);
     }
   }
   
-  // Check if a pixel matches any background color
+  // Step 2: Check if pixel is background
   const isBackground = (r: number, g: number, b: number): boolean => {
     for (const bg of bgColors) {
       const dr = Math.abs(r - bg[0]);
       const dg = Math.abs(g - bg[1]);
       const db = Math.abs(b - bg[2]);
-      // Use weighted distance (human eyes more sensitive to green)
       const dist = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
-      if (dist <= tolerance * 1.5) {
-        return true;
-      }
+      if (dist <= tolerance * 1.5) return true;
     }
     return false;
   };
   
-  // Create alpha mask
+  // Step 3: Scanline flood fill (more efficient than stack-based)
+  onProgress?.(10);
   const alphaMask = new Uint8Array(width * height).fill(255);
+  const visited = new Uint8Array(width * height);
   
-  // Flood fill from edges to mark background
-  const floodFill = (startX: number, startY: number) => {
+  // Scanline flood fill - much more efficient
+  const scanlineFill = async (startX: number, startY: number) => {
     if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
     
-    const stack: [number, number][] = [[startX, startY]];
-    const visited = new Uint8Array(width * height);
+    const stack: [number, number, number, number][] = []; // [y, xLeft, xRight, direction]
+    
+    // Find scanline range at start
+    const idx0 = startY * width + startX;
+    if (visited[idx0] || !isBackground(data[idx0 * 4], data[idx0 * 4 + 1], data[idx0 * 4 + 2])) return;
+    
+    // Find leftmost background pixel on this scanline
+    let left = startX;
+    while (left > 0) {
+      const idx = startY * width + (left - 1);
+      if (visited[idx]) break;
+      if (!isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) break;
+      left--;
+    }
+    
+    // Find rightmost background pixel on this scanline
+    let right = startX;
+    while (right < width - 1) {
+      const idx = startY * width + (right + 1);
+      if (visited[idx]) break;
+      if (!isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) break;
+      right++;
+    }
+    
+    stack.push([startY, left, right, 1]);  // direction 1 = down, -1 = up
+    stack.push([startY, left, right, -1]);
+    
+    let iterations = 0;
+    const maxIterationsPerYield = 50000;
     
     while (stack.length > 0) {
-      const [x, y] = stack.pop()!;
+      iterations++;
+      if (iterations % maxIterationsPerYield === 0) {
+        onProgress?.(10 + Math.min(40, iterations / 100000));
+        await yieldToMain();
+      }
       
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      const [y, xLeft, xRight, dir] = stack.pop()!;
       
-      const idx = y * width + x;
-      if (visited[idx]) continue;
-      visited[idx] = 1;
+      // Mark this scanline as background
+      for (let x = xLeft; x <= xRight; x++) {
+        const idx = y * width + x;
+        if (!visited[idx]) {
+          visited[idx] = 1;
+          alphaMask[idx] = 0;
+        }
+      }
       
-      const i = idx * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      
-      if (!isBackground(r, g, b)) continue;
-      
-      alphaMask[idx] = 0;
-      
-      // 8-directional fill for better coverage
-      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-      stack.push([x + 1, y + 1], [x - 1, y - 1], [x + 1, y - 1], [x - 1, y + 1]);
+      // Check scanlines above and below
+      for (const newY of [y + dir, y - dir]) {
+        if (newY < 0 || newY >= height) continue;
+        
+        let newLeft = -1;
+        for (let x = xLeft; x <= xRight; x++) {
+          const idx = newY * width + x;
+          if (!visited[idx] && isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) {
+            if (newLeft === -1) newLeft = x;
+          } else if (newLeft !== -1) {
+            // End of run, push to stack
+            stack.push([newY, newLeft, x - 1, dir]);
+            newLeft = -1;
+          }
+        }
+        if (newLeft !== -1) {
+          stack.push([newY, newLeft, xRight, dir]);
+        }
+      }
     }
   };
   
-  // Start flood fill from all edge pixels
-  for (let x = 0; x < width; x += 2) {
-    floodFill(x, 0);
-    floodFill(x, height - 1);
+  // Start flood fill from edges
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 10));
+  for (let x = 0; x < width; x += step) {
+    await scanlineFill(x, 0);
+    await scanlineFill(x, height - 1);
   }
-  for (let y = 0; y < height; y += 2) {
-    floodFill(0, y);
-    floodFill(width - 1, y);
+  for (let y = 0; y < height; y += step) {
+    await scanlineFill(0, y);
+    await scanlineFill(width - 1, y);
   }
   
-  // Morphological operation: close small holes in subject (dilation then erosion)
+  // Step 4: Fill small holes (async)
+  onProgress?.(60);
+  await yieldToMain();
+  
   const tempMask = new Uint8Array(alphaMask);
-  const kernelSize = 2;
-  
-  // Dilate (expand foreground)
-  for (let y = kernelSize; y < height - kernelSize; y++) {
-    for (let x = kernelSize; x < width - kernelSize; x++) {
-      if (alphaMask[y * width + x] === 255) {
-        // Check if any neighbor is background
-        for (let ky = -kernelSize; ky <= kernelSize; ky++) {
-          for (let kx = -kernelSize; kx <= kernelSize; kx++) {
-            const ni = (y + ky) * width + (x + kx);
-            if (tempMask[ni] === 0) {
-              // This foreground pixel is near background, might be edge noise
-            }
-          }
-        }
-      }
+  const holeFillSize = 3;
+  let row = 0;
+  for (let y = holeFillSize; y < height - holeFillSize; y++) {
+    row++;
+    if (row % 100 === 0) {
+      onProgress?.(60 + (row / height) * 15);
+      await yieldToMain();
     }
-  }
-  
-  // Fill small holes in foreground (morphological close)
-  for (let y = 2; y < height - 2; y++) {
-    for (let x = 2; x < width - 2; x++) {
+    
+    for (let x = holeFillSize; x < width - holeFillSize; x++) {
       const idx = y * width + x;
       if (alphaMask[idx] === 0) {
-        // Count foreground neighbors
         let fgCount = 0;
-        for (let ky = -2; ky <= 2; ky++) {
-          for (let kx = -2; kx <= 2; kx++) {
+        for (let ky = -holeFillSize; ky <= holeFillSize; ky++) {
+          for (let kx = -holeFillSize; kx <= holeFillSize; kx++) {
             if (alphaMask[(y + ky) * width + (x + kx)] === 255) fgCount++;
           }
         }
-        // If surrounded by foreground, fill this hole
-        if (fgCount >= 20) {
-          tempMask[idx] = 255;
-        }
+        if (fgCount >= 20) tempMask[idx] = 255;
       }
     }
   }
   
-  // Apply mask with edge smoothing
+  // Step 5: Apply mask (fast)
+  onProgress?.(80);
   for (let i = 0; i < width * height; i++) {
     const srcI = i * 4;
     resultData[srcI] = data[srcI];
@@ -205,39 +239,36 @@ const removeBackgroundSimple = (
     resultData[srcI + 3] = tempMask[i];
   }
   
-  // Edge smoothing with Gaussian-like blur on alpha channel
+  // Step 6: Edge smoothing (async)
+  await yieldToMain();
   const smoothedAlpha = new Uint8Array(width * height);
+  row = 0;
+  
   for (let y = 2; y < height - 2; y++) {
+    row++;
+    if (row % 100 === 0) {
+      onProgress?.(80 + (row / height) * 15);
+      await yieldToMain();
+    }
+    
     for (let x = 2; x < width - 2; x++) {
+      // Simple 3x3 box blur for speed
       let sum = 0;
-      let weight = 0;
-      
-      // 5x5 Gaussian kernel approximation
-      const weights = [
-        [1, 4, 7, 4, 1],
-        [4, 16, 26, 16, 4],
-        [7, 26, 41, 26, 7],
-        [4, 16, 26, 16, 4],
-        [1, 4, 7, 4, 1]
-      ];
-      
-      for (let ky = -2; ky <= 2; ky++) {
-        for (let kx = -2; kx <= 2; kx++) {
-          const w = weights[ky + 2][kx + 2];
-          sum += tempMask[(y + ky) * width + (x + kx)] * w;
-          weight += w;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          sum += tempMask[(y + ky) * width + (x + kx)];
         }
       }
-      
-      smoothedAlpha[y * width + x] = Math.round(sum / weight);
+      smoothedAlpha[y * width + x] = Math.round(sum / 9);
     }
   }
   
-  // Apply smoothed alpha with feathered edges
+  // Apply smoothed alpha
   for (let i = 0; i < width * height; i++) {
     resultData[i * 4 + 3] = smoothedAlpha[i];
   }
   
+  onProgress?.(100);
   return result;
 };
 
@@ -298,9 +329,9 @@ export default function Home() {
       setOriginalImage(imageDataUrl);
 
       setStep('removing-bg');
-      setProgress(30);
+      setProgress(20);
 
-      // Use simple color-based background removal
+      // Use async background removal with progress updates
       const result = await new Promise<string>((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
@@ -318,12 +349,12 @@ export default function Home() {
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
             
-            setProgress(50);
-            
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const processedData = removeBackgroundSimple(imageData, bgTolerance);
             
-            setProgress(70);
+            // Pass progress callback for real-time updates
+            const processedData = await removeBackgroundSimple(imageData, bgTolerance, (p) => {
+              setProgress(20 + Math.round(p * 0.6)); // 20-80%
+            });
             
             ctx.putImageData(processedData, 0, 0);
             resolve(canvas.toDataURL('image/png'));
