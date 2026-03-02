@@ -1056,9 +1056,8 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
-      // Step 2: Calculate image size (max dimension = gridCount * 0.9 cells)
-      const maxCellCount = gridCount * 0.9;
-      const maxImageSize = maxCellCount * cellSize;
+      // Step 2: Calculate image size (max dimension = grid size * 0.9)
+      const maxImageSize = gridSize * 0.9;
       let imgWidth = img.width;
       let imgHeight = img.height;
       
@@ -1174,9 +1173,8 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       resultCtx.fillRect(0, 0, gridSize, gridSize);
 
       // Calculate image size and position, align to grid lines
-      // Max dimension = gridCount * 0.9 cells
-      const maxCellCount = gridCount * 0.9;
-      const maxImageSize = maxCellCount * cellSize;
+      // Max dimension = grid size * 0.9
+      const maxImageSize = gridSize * 0.9;
       let scaledWidth = imgWidth;
       let scaledHeight = imgHeight;
       
@@ -1564,10 +1562,8 @@ async function generateBeadPatternHD(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
 
-      // Calculate subject size (max dimension = gridSize * 0.9 cells) aligned to grid lines
-      // Subject's max dimension (width or height, whichever is larger) = gridCount * 0.9
-      const maxCellCount = gridSize * 0.9;
-      const maxSubjectSize = maxCellCount * cellSize;
+      // Calculate subject size: max dimension = grid area size * 0.9
+      const maxSubjectSize = gridAreaSize * 0.9;
       let scaledWidth = img.width;
       let scaledHeight = img.height;
       
