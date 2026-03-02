@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Grid2X2,
   Beaker,
+  Wand2,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 
@@ -42,6 +43,111 @@ const GRID_OPTIONS = [
   { value: 100, label: '100 × 100' },
 ];
 
+// Simple background removal using color-based approach
+// This works well for images with solid/gradient backgrounds
+const removeBackgroundSimple = (
+  imageData: ImageData,
+  tolerance: number = 30
+): ImageData => {
+  const { width, height, data } = imageData;
+  const result = new ImageData(width, height);
+  const resultData = result.data;
+  
+  // Get background colors from corners
+  const getPixel = (x: number, y: number) => {
+    const i = (y * width + x) * 4;
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+  };
+  
+  const cornerColors = [
+    getPixel(0, 0),
+    getPixel(width - 1, 0),
+    getPixel(0, height - 1),
+    getPixel(width - 1, height - 1),
+  ];
+  
+  // Average background color
+  const bgColor = [
+    Math.round(cornerColors.reduce((s, c) => s + c[0], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[1], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[2], 0) / 4),
+  ];
+  
+  // Check if a pixel is similar to background
+  const isBackground = (r: number, g: number, b: number): boolean => {
+    const dr = Math.abs(r - bgColor[0]);
+    const dg = Math.abs(g - bgColor[1]);
+    const db = Math.abs(b - bgColor[2]);
+    return dr <= tolerance && dg <= tolerance && db <= tolerance;
+  };
+  
+  // Create alpha mask using flood fill from edges
+  const alphaMask = new Uint8Array(width * height).fill(0);
+  
+  // Flood fill from edges to mark background
+  const floodFill = (startX: number, startY: number) => {
+    const stack: [number, number][] = [[startX, startY]];
+    const visited = new Set<string>();
+    
+    while (stack.length > 0) {
+      const [x, y] = stack.pop()!;
+      const key = `${x},${y}`;
+      
+      if (visited.has(key)) continue;
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      
+      const i = (y * width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      if (!isBackground(r, g, b)) continue;
+      
+      visited.add(key);
+      alphaMask[y * width + x] = 1;
+      
+      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+  };
+  
+  // Start flood fill from all corners
+  floodFill(0, 0);
+  floodFill(width - 1, 0);
+  floodFill(0, height - 1);
+  floodFill(width - 1, height - 1);
+  
+  // Apply mask
+  for (let i = 0; i < width * height; i++) {
+    const srcI = i * 4;
+    resultData[srcI] = data[srcI];
+    resultData[srcI + 1] = data[srcI + 1];
+    resultData[srcI + 2] = data[srcI + 2];
+    resultData[srcI + 3] = alphaMask[i] ? 0 : 255;
+  }
+  
+  // Edge smoothing: apply slight blur to alpha channel
+  const smoothedAlpha = new Uint8Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      let sum = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          sum += resultData[((y + dy) * width + (x + dx)) * 4 + 3];
+        }
+      }
+      smoothedAlpha[i] = Math.round(sum / 9);
+    }
+  }
+  
+  // Apply smoothed alpha
+  for (let i = 0; i < width * height; i++) {
+    resultData[i * 4 + 3] = smoothedAlpha[i];
+  }
+  
+  return result;
+};
+
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
@@ -50,7 +156,6 @@ export default function Home() {
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [modelLoaded, setModelLoaded] = useState(false);
   const [gridSize, setGridSize] = useState(25);
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
@@ -59,60 +164,12 @@ export default function Home() {
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
+  const [bgTolerance, setBgTolerance] = useState(30);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const modelRef = useRef<{
-    segmenter: BodySegmenter | null;
-    loaded: boolean;
-  }>({ segmenter: null, loaded: false });
-
-  // Load TensorFlow model on mount
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        const tf = await import('@tensorflow/tfjs');
-        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-        
-        await tf.ready();
-        
-        const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-        const segmenter = await bodySegmentation.createSegmenter(model, {
-          runtime: 'tfjs',
-          modelType: 'general',
-        });
-        
-        modelRef.current = { segmenter, loaded: true };
-        setModelLoaded(true);
-        console.log('Model loaded successfully');
-      } catch (err) {
-        console.error('Failed to load model:', err);
-        try {
-          const tf = await import('@tensorflow/tfjs');
-          const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-          
-          await tf.ready();
-          
-          const model = bodySegmentation.SupportedModels.BodyPix;
-          const segmenter = await bodySegmentation.createSegmenter(model, {
-            architecture: 'ResNet50',
-            outputStride: 16,
-            quantBytes: 4,
-          });
-          
-          modelRef.current = { segmenter, loaded: true };
-          setModelLoaded(true);
-          console.log('Fallback BodyPix model loaded');
-        } catch (fallbackErr) {
-          console.error('Fallback also failed:', fallbackErr);
-        }
-      }
-    };
-    
-    loadModel();
-  }, []);
 
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    if ((step === 'idle' || step === 'done') && modelLoaded) {
+    if (step === 'idle' || step === 'done') {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -127,7 +184,7 @@ export default function Home() {
         fileInputRef.current.click();
       }
     }
-  }, [step, modelLoaded]);
+  }, [step]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -146,62 +203,36 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      setStep('loading-model');
-      setProgress(20);
-      
-      let segmenter = modelRef.current.segmenter;
-      
-      if (!segmenter) {
-        const tf = await import('@tensorflow/tfjs');
-        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-        
-        await tf.ready();
-        
-        const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-        segmenter = await bodySegmentation.createSegmenter(model, {
-          runtime: 'tfjs',
-          modelType: 'general',
-        });
-        
-        modelRef.current = { segmenter, loaded: true };
-      }
+      setStep('removing-bg');
       setProgress(30);
 
-      setStep('removing-bg');
-      setProgress(40);
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
+      // Use simple color-based background removal
       const result = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
         img.onload = async () => {
           try {
-            const originalWidth = img.width;
-            const originalHeight = img.height;
-            
-            setProgress(50);
-            
-            const segmentation = await segmenter!.segmentPeople(img, {
-              flipHorizontal: false,
-              multiSegment: false,
-            });
-            
-            if (!segmentation || segmentation.length === 0) {
-              reject(new Error('无法识别图像内容，请尝试其他图片'));
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error('无法创建 Canvas'));
               return;
             }
             
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            setProgress(50);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const processedData = removeBackgroundSimple(imageData, bgTolerance);
+            
             setProgress(70);
             
-            const mask = await segmentation[0].mask.toImageData();
-            const removedBgDataUrl = await applyBackgroundRemoval(
-              imageDataUrl,
-              mask,
-              originalWidth,
-              originalHeight
-            );
-            
-            resolve(removedBgDataUrl);
+            ctx.putImageData(processedData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
           } catch (err) {
             reject(err);
           }
@@ -227,7 +258,7 @@ export default function Home() {
       setStep('idle');
       setProgress(0);
     }
-  }, [gridSize]);
+  }, [gridSize, bgTolerance]);
 
   // Transform to anime style
   const handleTransformAnime = useCallback(async () => {
@@ -421,7 +452,7 @@ export default function Home() {
     }
   }, []);
 
-  const canUpload = modelLoaded && (step === 'idle' || step === 'done');
+  const canUpload = step === 'idle' || step === 'done';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -435,20 +466,12 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            上传照片，AI 自动识别并抠出主体，转换为动漫风格，然后贴到空白网格纸上
+            上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
-          {!modelLoaded && (
-            <div className="mt-4 inline-flex items-center gap-2 text-amber-600 dark:text-amber-400">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">AI 模型加载中...</span>
-            </div>
-          )}
-          {modelLoaded && (
-            <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm">AI 模型已就绪</span>
-            </div>
-          )}
+          <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
+            <CheckCircle2 className="w-4 h-4" />
+            <span className="text-sm">准备就绪，点击上传照片开始</span>
+          </div>
         </div>
 
         {/* Grid Size Selector */}
