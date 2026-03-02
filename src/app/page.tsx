@@ -160,6 +160,7 @@ export default function Home() {
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
+  const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
   const [isPixelating, setIsPixelating] = useState(false);
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
@@ -355,8 +356,9 @@ export default function Home() {
     setError(null);
 
     try {
-      const pixelated = await pixelateImage(sourceImage, gridSize);
-      setPixelatedImage(pixelated);
+      const result = await pixelateImage(sourceImage, gridSize);
+      setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
+      setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
       console.error('Pixelate error:', err);
       setError(err instanceof Error ? err.message : '像素化处理失败');
@@ -365,16 +367,16 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
 
-  // Generate bead pattern from pixelated image
+  // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
-    // Use pixelated image directly
-    if (!pixelatedImage || isGeneratingBeadPattern) return;
+    // Use pixelated subject (transparent background) directly
+    if (!pixelatedSubject || isGeneratingBeadPattern) return;
 
     setIsGeneratingBeadPattern(true);
     setError(null);
 
     try {
-      const result = await generateBeadPatternHD(pixelatedImage, gridSize, 1);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
     } catch (err) {
@@ -383,7 +385,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedImage, gridSize, isGeneratingBeadPattern]);
+  }, [pixelatedSubject, gridSize, isGeneratingBeadPattern]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -408,12 +410,12 @@ export default function Home() {
   }, [pixelatedImage, gridSize, animeImage]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    // Use pixelated image directly
-    if (!pixelatedImage) return;
+    // Use pixelated subject (transparent background) directly
+    if (!pixelatedSubject) return;
 
     try {
       // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedImage, gridSize, 3);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -433,7 +435,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedImage, gridSize, animeImage, beadPatternImage]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -441,6 +443,7 @@ export default function Home() {
     setAnimeImage(null);
     setFinalImage(null);
     setPixelatedImage(null);
+    setPixelatedSubject(null);
     setBeadPatternImage(null);
     setBeadPatternLegend([]);
     setUseAnimeImage(false);
@@ -1138,7 +1141,19 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
   });
 }
 
-async function pixelateImage(imageUrl: string, gridCount: number): Promise<string> {
+interface PixelateResult {
+  fullImage: string;      // 完整图片（带白色背景和网格线）
+  subjectImage: string;   // 单独的像素化主体（透明背景）
+  subjectInfo: {
+    cellCountX: number;   // 主体宽度（网格数）
+    cellCountY: number;   // 主体高度（网格数）
+    offsetX: number;      // 在800×800画布上的X偏移（像素）
+    offsetY: number;      // 在800×800画布上的Y偏移（像素）
+    cellSize: number;     // 每个网格单元的像素大小
+  };
+}
+
+async function pixelateImage(imageUrl: string, gridCount: number): Promise<PixelateResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1297,7 +1312,18 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
         }
       }
 
-      resolve(resultCanvas.toDataURL('image/png'));
+      // Return both full image and subject image
+      resolve({
+        fullImage: resultCanvas.toDataURL('image/png'),
+        subjectImage: subjectCanvas.toDataURL('image/png'),
+        subjectInfo: {
+          cellCountX,
+          cellCountY,
+          offsetX,
+          offsetY,
+          cellSize
+        }
+      });
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
@@ -1525,9 +1551,10 @@ async function generateBeadPattern(
 }
 
 // Generate high-definition bead pattern for download
-// Based on pixelated image, fill MARD color codes and place on blank grid
+// Input: pixelated subject image (transparent background)
+// Process: read subject colors → match MARD colors → place on blank grid
 async function generateBeadPatternHD(
-  pixelatedImageUrl: string,
+  subjectImageUrl: string,
   gridSize: number,
   scale: number = 3
 ): Promise<{ image: string; legend: MardColor[] }> {
@@ -1536,7 +1563,111 @@ async function generateBeadPatternHD(
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Create HD canvas with extra space for edge numbers
+      // Step 1: Get source image data (pixelated subject with transparent background)
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) {
+        reject(new Error('无法创建源画布'));
+        return;
+      }
+      
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      srcCtx.drawImage(img, 0, 0);
+      
+      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
+      const srcData = srcImageData.data;
+      
+      // Calculate cell size in source image
+      // Subject image size is aligned to grid cells, each cell is (800 / gridSize) pixels
+      const srcCellSize = 800 / gridSize;
+      const srcCellCountX = Math.round(img.width / srcCellSize);
+      const srcCellCountY = Math.round(img.height / srcCellSize);
+      
+      // Step 2: Read colors from each cell, skip transparent cells
+      const blocksInfo: Array<{
+        gridX: number;
+        gridY: number;
+        avgR: number;
+        avgG: number;
+        avgB: number;
+        avgA: number;
+        nearestColor: MardColor;
+      }> = [];
+      
+      const colorUsageCount = new Map<string, number>();
+      
+      for (let cellY = 0; cellY < srcCellCountY; cellY++) {
+        for (let cellX = 0; cellX < srcCellCountX; cellX++) {
+          // Calculate average color for this cell
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+          
+          const startX = Math.floor(cellX * srcCellSize);
+          const startY = Math.floor(cellY * srcCellSize);
+          const endX = Math.floor((cellX + 1) * srcCellSize);
+          const endY = Math.floor((cellY + 1) * srcCellSize);
+          
+          for (let y = startY; y < endY && y < img.height; y++) {
+            for (let x = startX; x < endX && x < img.width; x++) {
+              const idx = (y * img.width + x) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
+              pixelCount++;
+            }
+          }
+          
+          if (pixelCount > 0) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
+            
+            // Only process cells that have visible content (alpha > 10)
+            if (avgA > 10) {
+              // Find nearest MARD color
+              const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+              
+              blocksInfo.push({
+                gridX: cellX,
+                gridY: cellY,
+                avgR, avgG, avgB, avgA,
+                nearestColor
+              });
+              
+              // Count color usage
+              const count = colorUsageCount.get(nearestColor.code) || 0;
+              colorUsageCount.set(nearestColor.code, count + 1);
+            }
+          }
+        }
+      }
+      
+      // Step 3: Limit colors to max 20 (keep most frequently used)
+      const MAX_COLORS = 20;
+      let selectedColors: MardColor[];
+      
+      if (colorUsageCount.size <= MAX_COLORS) {
+        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
+          const block = blocksInfo.find(b => b.nearestColor.code === code)!;
+          return block.nearestColor;
+        });
+      } else {
+        const sortedColors = Array.from(colorUsageCount.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_COLORS)
+          .map(([code]) => {
+            const block = blocksInfo.find(b => b.nearestColor.code === code)!;
+            return block.nearestColor;
+          });
+        selectedColors = sortedColors;
+      }
+      
+      const selectedColorCodes = new Set(selectedColors.map(c => c.code));
+      
+      // Step 4: Create HD canvas with margin for edge numbers
       const gridAreaSize = 800 * scale;
       const marginSize = 50 * scale;
       const totalSize = gridAreaSize + marginSize * 2;
@@ -1551,137 +1682,18 @@ async function generateBeadPatternHD(
         reject(new Error('无法创建画布'));
         return;
       }
-
+      
       // Fill with white background
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, totalSize, totalSize);
-
-      // Get source image data (pixelated image is 800x800)
-      const srcCanvas = document.createElement('canvas');
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) {
-        reject(new Error('无法创建源画布'));
-        return;
-      }
-      srcCanvas.width = img.width;
-      srcCanvas.height = img.height;
-      srcCtx.drawImage(img, 0, 0);
       
-      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
-      const srcData = srcImageData.data;
+      // Step 5: Calculate subject position on target canvas
+      // Subject area = 0.9 of grid, centered
+      const subjectCellCountX = srcCellCountX;
+      const subjectCellCountY = srcCellCountY;
+      const offsetX = marginSize + Math.floor((gridSize - subjectCellCountX) / 2) * cellSize;
+      const offsetY = marginSize + Math.floor((gridSize - subjectCellCountY) / 2) * cellSize;
       
-      // Source image is 800x800 with gridSize cells
-      const srcCellSize = 800 / gridSize;
-      
-      // Calculate subject size (area = 0.9 of grid)
-      // Side ratio = sqrt(0.9) ≈ 0.949
-      const subjectCellCount = Math.round(gridSize * Math.sqrt(0.9));
-      
-      // Calculate offset for subject in source (centered)
-      const srcOffsetCells = Math.floor((gridSize - subjectCellCount) / 2);
-      
-      // Calculate offset for subject on target canvas (centered, accounting for margin)
-      const targetOffsetCells = Math.floor((gridSize - subjectCellCount) / 2);
-      const offsetX = marginSize + targetOffsetCells * cellSize;
-      const offsetY = marginSize + targetOffsetCells * cellSize;
-
-      // Color tracking for legend
-      const colorMap = new Map<string, MardColor>();
-      const colorUsageCount = new Map<string, number>();
-
-      // Calculate font size based on cell size - larger for HD
-      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
-      
-      // Store blocks info for drawing text later
-      const blocksInfo: Array<{
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        color: MardColor;
-        avgR: number;
-        avgG: number;
-        avgB: number;
-      }> = [];
-
-      // Read colors from pixelated image, only within subject area
-      const pixelatedBlocks: Array<{
-        gridX: number;
-        gridY: number;
-        avgR: number;
-        avgG: number;
-        avgB: number;
-        nearestColor: MardColor;
-      }> = [];
-
-      for (let gridY = 0; gridY < subjectCellCount; gridY++) {
-        for (let gridX = 0; gridX < subjectCellCount; gridX++) {
-          // Source position in the pixelated image
-          const srcGridX = srcOffsetCells + gridX;
-          const srcGridY = srcOffsetCells + gridY;
-          
-          // Read color from center of the cell (avoid grid lines)
-          const centerOffset = srcCellSize * 0.1; // Skip edges where grid lines might be
-          const srcX = Math.floor(srcGridX * srcCellSize + centerOffset);
-          const srcY = Math.floor(srcGridY * srcCellSize + centerOffset);
-          const srcX2 = Math.floor((srcGridX + 1) * srcCellSize - centerOffset);
-          const srcY2 = Math.floor((srcGridY + 1) * srcCellSize - centerOffset);
-          
-          // Calculate average color from the cell interior
-          let totalR = 0, totalG = 0, totalB = 0;
-          let pixelCount = 0;
-          
-          for (let sy = srcY; sy < srcY2; sy++) {
-            for (let sx = srcX; sx < srcX2; sx++) {
-              const idx = (sy * 800 + sx) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              pixelCount++;
-            }
-          }
-          
-          const avgR = pixelCount > 0 ? Math.round(totalR / pixelCount) : 255;
-          const avgG = pixelCount > 0 ? Math.round(totalG / pixelCount) : 255;
-          const avgB = pixelCount > 0 ? Math.round(totalB / pixelCount) : 255;
-
-          // Find nearest MARD color
-          const nearestColor = findClosestMardColor(avgR, avgG, avgB);
-          
-          pixelatedBlocks.push({ 
-            gridX, gridY, 
-            avgR, avgG, avgB,
-            nearestColor
-          });
-          
-          // Count usage
-          const count = colorUsageCount.get(nearestColor.code) || 0;
-          colorUsageCount.set(nearestColor.code, count + 1);
-        }
-      }
-
-      // Limit to max 20 colors by keeping most frequently used
-      const MAX_COLORS = 20;
-      let selectedColors: MardColor[];
-      
-      if (colorUsageCount.size <= MAX_COLORS) {
-        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
-          const block = pixelatedBlocks.find(b => b.nearestColor.code === code)!;
-          return block.nearestColor;
-        });
-      } else {
-        const sortedColors = Array.from(colorUsageCount.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_COLORS)
-          .map(([code]) => {
-            const block = pixelatedBlocks.find(b => b.nearestColor.code === code)!;
-            return block.nearestColor;
-          });
-        selectedColors = sortedColors;
-      }
-
-      const selectedColorCodes = new Set(selectedColors.map(c => c.code));
-
       // Helper function to parse hex to RGB
       const hexToRgb = (hex: string) => {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -1691,12 +1703,22 @@ async function generateBeadPatternHD(
           b: parseInt(result[3], 16)
         } : { r: 0, g: 0, b: 0 };
       };
-
-      // Draw pixelated subject with MARD colors on canvas
-      for (const block of pixelatedBlocks) {
-        const x1 = offsetX + block.gridX * cellSize;
-        const y1 = offsetY + block.gridY * cellSize;
-        
+      
+      // Color tracking for legend
+      const colorMap = new Map<string, MardColor>();
+      
+      // Step 6: Draw subject blocks with MARD colors
+      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
+      const drawnBlocks: Array<{
+        x: number;
+        y: number;
+        color: MardColor;
+        rgbR: number;
+        rgbG: number;
+        rgbB: number;
+      }> = [];
+      
+      for (const block of blocksInfo) {
         let finalColor = block.nearestColor;
         
         // If color not in selected colors, find closest from selected
@@ -1718,44 +1740,45 @@ async function generateBeadPatternHD(
         
         // Get RGB values for the final color
         const finalRgb = hexToRgb(finalColor.hex);
-
+        
+        // Calculate position on target canvas
+        const x = offsetX + block.gridX * cellSize;
+        const y = offsetY + block.gridY * cellSize;
+        
+        // Fill the block with the final color
+        ctx.fillStyle = finalColor.hex;
+        ctx.fillRect(x, y, cellSize, cellSize);
+        
+        // Track for text drawing
+        drawnBlocks.push({
+          x, y,
+          color: finalColor,
+          rgbR: finalRgb.r,
+          rgbG: finalRgb.g,
+          rgbB: finalRgb.b
+        });
+        
         // Track color for legend
         if (!colorMap.has(finalColor.code)) {
           colorMap.set(finalColor.code, finalColor);
         }
-
-        // Fill the block with the final color
-        ctx.fillStyle = finalColor.hex;
-        ctx.fillRect(x1, y1, cellSize, cellSize);
-
-        // Store block info for text drawing
-        blocksInfo.push({
-          x: x1,
-          y: y1,
-          width: cellSize,
-          height: cellSize,
-          color: finalColor,
-          avgR: finalRgb.r,
-          avgG: finalRgb.g,
-          avgB: finalRgb.b
-        });
       }
-
-      // Draw MARD color codes on subject blocks
+      
+      // Step 7: Draw MARD color codes on blocks
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
-      for (const block of blocksInfo) {
-        const brightness = (block.avgR * 299 + block.avgG * 587 + block.avgB * 114) / 1000;
+      for (const block of drawnBlocks) {
+        const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
         ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
         
         ctx.font = `bold ${fontSize}px Arial`;
-        const centerX = block.x + block.width / 2;
-        const centerY = block.y + block.height / 2;
+        const centerX = block.x + cellSize / 2;
+        const centerY = block.y + cellSize / 2;
         ctx.fillText(block.color.code, centerX, centerY);
       }
-
-      // Draw grid lines (thinner for cleaner look)
+      
+      // Step 8: Draw grid lines
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
 
@@ -1775,7 +1798,7 @@ async function generateBeadPatternHD(
         ctx.stroke();
       }
 
-      // Draw thicker lines every 5 cells for easier counting
+      // Draw thicker lines every 5 cells
       if (gridSize >= 10) {
         ctx.strokeStyle = '#9ca3af';
         ctx.lineWidth = Math.max(1.5, Math.floor(scale * 0.75));
@@ -1795,33 +1818,33 @@ async function generateBeadPatternHD(
         }
       }
 
-      // Draw edge numbers (1,2,3... for both axes)
+      // Step 9: Draw edge numbers (1,2,3... for both axes)
       ctx.fillStyle = '#333333';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const numberFontSize = Math.max(14, Math.min(24, marginSize / 2.5));
       ctx.font = `bold ${numberFontSize}px Arial`;
 
-      // Top edge numbers (1,2,3...)
+      // Top edge numbers
       for (let i = 0; i < gridSize; i++) {
         const x = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), x, marginSize / 2);
       }
 
-      // Bottom edge numbers (1,2,3...)
+      // Bottom edge numbers
       for (let i = 0; i < gridSize; i++) {
         const x = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), x, totalSize - marginSize / 2);
       }
 
-      // Left edge numbers (1,2,3...)
+      // Left edge numbers
       ctx.textAlign = 'center';
       for (let i = 0; i < gridSize; i++) {
         const y = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), marginSize / 2, y);
       }
 
-      // Right edge numbers (1,2,3...)
+      // Right edge numbers
       for (let i = 0; i < gridSize; i++) {
         const y = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), totalSize - marginSize / 2, y);
@@ -1837,6 +1860,6 @@ async function generateBeadPatternHD(
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = pixelatedImageUrl;
+    img.src = subjectImageUrl;
   });
 }
