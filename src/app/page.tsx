@@ -1587,8 +1587,13 @@ async function generateBeadPatternHD(
         avgR: number;
         avgG: number;
         avgB: number;
+        avgA: number;
         nearestColor: MardColor;
+        isTransparent: boolean;
       }> = [];
+
+      // Track which blocks have any non-transparent content
+      const hasContent: boolean[][] = Array(cellCountY).fill(null).map(() => Array(cellCountX).fill(false));
 
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
@@ -1601,6 +1606,7 @@ async function generateBeadPatternHD(
           // Calculate average color from source region
           let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
+          let nonTransparentPixels = 0;
 
           for (let sy = srcY1; sy < srcY2; sy++) {
             for (let sx = srcX1; sx < srcX2; sx++) {
@@ -1610,23 +1616,85 @@ async function generateBeadPatternHD(
               totalB += srcData[idx + 2];
               totalA += srcData[idx + 3];
               pixelCount++;
+              if (srcData[idx + 3] > 0) {
+                nonTransparentPixels++;
+              }
             }
           }
 
-          // Only process non-transparent pixels (subject area)
-          if (pixelCount > 0 && totalA / pixelCount > 25) {
+          // Process blocks that have any non-transparent pixels
+          if (pixelCount > 0 && nonTransparentPixels > 0) {
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
+            const avgA = totalA / pixelCount;
+
+            // For transparent blocks, use white as base color (will be filled later)
+            const effectiveR = avgA > 10 ? avgR : 255;
+            const effectiveG = avgA > 10 ? avgG : 255;
+            const effectiveB = avgA > 10 ? avgB : 255;
 
             // Find nearest MARD color
-            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+            const nearestColor = findClosestMardColor(effectiveR, effectiveG, effectiveB);
             
-            rawBlocks.push({ gridX, gridY, avgR, avgG, avgB, nearestColor });
+            rawBlocks.push({ 
+              gridX, gridY, 
+              avgR: effectiveR, avgG: effectiveG, avgB: effectiveB, avgA,
+              nearestColor, 
+              isTransparent: avgA < 10 
+            });
+            hasContent[gridY][gridX] = true;
             
-            // Count usage
-            const count = colorUsageCount.get(nearestColor.code) || 0;
-            colorUsageCount.set(nearestColor.code, count + 1);
+            // Count usage (only non-transparent blocks)
+            if (avgA >= 10) {
+              const count = colorUsageCount.get(nearestColor.code) || 0;
+              colorUsageCount.set(nearestColor.code, count + 1);
+            }
+          }
+        }
+      }
+
+      // Second pass: fill transparent blocks that are inside subject boundary
+      // A block is inside if it has content and has at least one non-transparent neighbor
+      for (let i = 0; i < rawBlocks.length; i++) {
+        const block = rawBlocks[i];
+        if (block.isTransparent) {
+          // Find nearest non-transparent neighbor color
+          const neighbors = [
+            { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+            { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+            { dx: -1, dy: -1 }, { dx: 1, dy: -1 },
+            { dx: -1, dy: 1 }, { dx: 1, dy: 1 }
+          ];
+          
+          let nearestNonTransparent = null;
+          let minDist = Infinity;
+          
+          for (const { dx, dy } of neighbors) {
+            const nx = block.gridX + dx;
+            const ny = block.gridY + dy;
+            if (nx >= 0 && nx < cellCountX && ny >= 0 && ny < cellCountY) {
+              const neighbor = rawBlocks.find(b => b.gridX === nx && b.gridY === ny && !b.isTransparent);
+              if (neighbor) {
+                const dist = Math.abs(dx) + Math.abs(dy);
+                if (dist < minDist) {
+                  minDist = dist;
+                  nearestNonTransparent = neighbor;
+                }
+              }
+            }
+          }
+          
+          if (nearestNonTransparent) {
+            block.avgR = nearestNonTransparent.avgR;
+            block.avgG = nearestNonTransparent.avgG;
+            block.avgB = nearestNonTransparent.avgB;
+            block.nearestColor = nearestNonTransparent.nearestColor;
+            block.isTransparent = false;
+            
+            // Count this color too
+            const count = colorUsageCount.get(block.nearestColor.code) || 0;
+            colorUsageCount.set(block.nearestColor.code, count + 1);
           }
         }
       }
