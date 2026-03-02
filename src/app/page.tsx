@@ -17,16 +17,9 @@ import {
   RefreshCw,
   Grid2X2,
   Beaker,
+  Wand2,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
-
-// BodySegmenter type from @tensorflow-models/body-segmentation
-type BodySegmenter = {
-  segmentPeople: (image: HTMLImageElement, config: {
-    flipHorizontal: boolean;
-    multiSegment: boolean;
-  }) => Promise<Array<{ mask: { toImageData: () => Promise<ImageData> } }>>;
-};
 
 type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
 
@@ -50,6 +43,111 @@ const GRID_OPTIONS = [
   { value: 100, label: '100 × 100' },
 ];
 
+// Simple background removal using color-based approach
+// This works well for images with solid/gradient backgrounds
+const removeBackgroundSimple = (
+  imageData: ImageData,
+  tolerance: number = 30
+): ImageData => {
+  const { width, height, data } = imageData;
+  const result = new ImageData(width, height);
+  const resultData = result.data;
+  
+  // Get background colors from corners
+  const getPixel = (x: number, y: number) => {
+    const i = (y * width + x) * 4;
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+  };
+  
+  const cornerColors = [
+    getPixel(0, 0),
+    getPixel(width - 1, 0),
+    getPixel(0, height - 1),
+    getPixel(width - 1, height - 1),
+  ];
+  
+  // Average background color
+  const bgColor = [
+    Math.round(cornerColors.reduce((s, c) => s + c[0], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[1], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[2], 0) / 4),
+  ];
+  
+  // Check if a pixel is similar to background
+  const isBackground = (r: number, g: number, b: number): boolean => {
+    const dr = Math.abs(r - bgColor[0]);
+    const dg = Math.abs(g - bgColor[1]);
+    const db = Math.abs(b - bgColor[2]);
+    return dr <= tolerance && dg <= tolerance && db <= tolerance;
+  };
+  
+  // Create alpha mask using flood fill from edges
+  const alphaMask = new Uint8Array(width * height).fill(0);
+  
+  // Flood fill from edges to mark background
+  const floodFill = (startX: number, startY: number) => {
+    const stack: [number, number][] = [[startX, startY]];
+    const visited = new Set<string>();
+    
+    while (stack.length > 0) {
+      const [x, y] = stack.pop()!;
+      const key = `${x},${y}`;
+      
+      if (visited.has(key)) continue;
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      
+      const i = (y * width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      if (!isBackground(r, g, b)) continue;
+      
+      visited.add(key);
+      alphaMask[y * width + x] = 1;
+      
+      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+  };
+  
+  // Start flood fill from all corners
+  floodFill(0, 0);
+  floodFill(width - 1, 0);
+  floodFill(0, height - 1);
+  floodFill(width - 1, height - 1);
+  
+  // Apply mask
+  for (let i = 0; i < width * height; i++) {
+    const srcI = i * 4;
+    resultData[srcI] = data[srcI];
+    resultData[srcI + 1] = data[srcI + 1];
+    resultData[srcI + 2] = data[srcI + 2];
+    resultData[srcI + 3] = alphaMask[i] ? 0 : 255;
+  }
+  
+  // Edge smoothing: apply slight blur to alpha channel
+  const smoothedAlpha = new Uint8Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      let sum = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          sum += resultData[((y + dy) * width + (x + dx)) * 4 + 3];
+        }
+      }
+      smoothedAlpha[i] = Math.round(sum / 9);
+    }
+  }
+  
+  // Apply smoothed alpha
+  for (let i = 0; i < width * height; i++) {
+    resultData[i * 4 + 3] = smoothedAlpha[i];
+  }
+  
+  return result;
+};
+
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
@@ -58,58 +156,21 @@ export default function Home() {
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [modelLoaded, setModelLoaded] = useState(false);
   const [gridSize, setGridSize] = useState(25);
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
-  const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null);
-  const [subjectCells, setSubjectCells] = useState<SubjectCell[]>([]);
+  const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
   const [isPixelating, setIsPixelating] = useState(false);
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
+  const [bgTolerance, setBgTolerance] = useState(30);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const modelRef = useRef<{
-    segmenter: BodySegmenter | null;
-    loaded: boolean;
-  }>({ segmenter: null, loaded: false });
-
-  // Load TensorFlow model on mount
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        const tf = await import('@tensorflow/tfjs');
-        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-        
-        await tf.ready();
-        console.log('TensorFlow ready, loading segmentation model...');
-        
-        // Use BodyPix model (more reliable)
-        const model = bodySegmentation.SupportedModels.BodyPix;
-        const segmenter = await bodySegmentation.createSegmenter(model, {
-          architecture: 'MobileNetV1',
-          outputStride: 16,
-          multiplier: 0.75,
-          quantBytes: 2,
-        });
-        
-        modelRef.current = { segmenter, loaded: true };
-        setModelLoaded(true);
-        console.log('BodyPix model loaded successfully');
-      } catch (err) {
-        console.error('Failed to load model:', err);
-        // Try to load anyway - user can still use the tool
-        setModelLoaded(true);
-      }
-    };
-    
-    loadModel();
-  }, []);
 
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    if ((step === 'idle' || step === 'done') && modelLoaded) {
+    if (step === 'idle' || step === 'done') {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -124,7 +185,7 @@ export default function Home() {
         fileInputRef.current.click();
       }
     }
-  }, [step, modelLoaded]);
+  }, [step]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -143,65 +204,36 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      setStep('loading-model');
-      setProgress(20);
-      
-      let segmenter = modelRef.current.segmenter;
-      
-      // Load model if not already loaded
-      if (!segmenter || !modelRef.current.loaded) {
-        const tf = await import('@tensorflow/tfjs');
-        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-        
-        await tf.ready();
-        
-        const model = bodySegmentation.SupportedModels.BodyPix;
-        segmenter = await bodySegmentation.createSegmenter(model, {
-          architecture: 'MobileNetV1',
-          outputStride: 16,
-          multiplier: 0.75,
-          quantBytes: 2,
-        });
-        
-        modelRef.current = { segmenter, loaded: true };
-      }
+      setStep('removing-bg');
       setProgress(30);
 
-      setStep('removing-bg');
-      setProgress(40);
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
+      // Use simple color-based background removal
       const result = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
         img.onload = async () => {
           try {
-            const originalWidth = img.width;
-            const originalHeight = img.height;
-            
-            setProgress(50);
-            
-            const segmentation = await segmenter!.segmentPeople(img, {
-              flipHorizontal: false,
-              multiSegment: false,
-            });
-            
-            if (!segmentation || segmentation.length === 0) {
-              reject(new Error('无法识别图像内容，请尝试其他图片'));
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error('无法创建 Canvas'));
               return;
             }
             
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            setProgress(50);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const processedData = removeBackgroundSimple(imageData, bgTolerance);
+            
             setProgress(70);
             
-            const mask = await segmentation[0].mask.toImageData();
-            const removedBgDataUrl = await applyBackgroundRemoval(
-              imageDataUrl,
-              mask,
-              originalWidth,
-              originalHeight
-            );
-            
-            resolve(removedBgDataUrl);
+            ctx.putImageData(processedData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
           } catch (err) {
             reject(err);
           }
@@ -227,7 +259,7 @@ export default function Home() {
       setStep('idle');
       setProgress(0);
     }
-  }, [gridSize]);
+  }, [gridSize, bgTolerance]);
 
   // Transform to anime style
   const handleTransformAnime = useCallback(async () => {
@@ -327,7 +359,6 @@ export default function Home() {
       const result = await pixelateImage(sourceImage, gridSize);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
-      setSubjectCells(result.subjectInfo.cells);  // 保存网格颜色信息
     } catch (err) {
       console.error('Pixelate error:', err);
       setError(err instanceof Error ? err.message : '像素化处理失败');
@@ -345,7 +376,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1, subjectCells);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
     } catch (err) {
@@ -384,7 +415,7 @@ export default function Home() {
 
     try {
       // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3, subjectCells);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -404,7 +435,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, subjectCells]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -413,7 +444,6 @@ export default function Home() {
     setFinalImage(null);
     setPixelatedImage(null);
     setPixelatedSubject(null);
-    setSubjectCells([]);
     setBeadPatternImage(null);
     setBeadPatternLegend([]);
     setUseAnimeImage(false);
@@ -425,7 +455,7 @@ export default function Home() {
     }
   }, []);
 
-  const canUpload = modelLoaded && (step === 'idle' || step === 'done');
+  const canUpload = step === 'idle' || step === 'done';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -439,20 +469,12 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            上传照片，AI 自动识别并抠出主体，转换为动漫风格，然后贴到空白网格纸上
+            上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
-          {!modelLoaded && (
-            <div className="mt-4 inline-flex items-center gap-2 text-amber-600 dark:text-amber-400">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">AI 模型加载中...</span>
-            </div>
-          )}
-          {modelLoaded && (
-            <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-sm">AI 模型已就绪</span>
-            </div>
-          )}
+          <div className="mt-4 inline-flex items-center gap-2 text-green-600 dark:text-green-400">
+            <CheckCircle2 className="w-4 h-4" />
+            <span className="text-sm">准备就绪，点击上传照片开始</span>
+          </div>
         </div>
 
         {/* Grid Size Selector */}
@@ -947,6 +969,12 @@ export default function Home() {
   );
 }
 
+// Type for body segmentation
+interface BodySegmenter {
+  segmentPeople: (image: HTMLImageElement, config: { flipHorizontal: boolean; multiSegment: boolean }) => Promise<Array<{ mask: { toImageData: () => Promise<ImageData> } }>>;
+  dispose: () => void;
+}
+
 // Helper functions
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1113,16 +1141,6 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
   });
 }
 
-interface SubjectCell {
-  gridX: number;
-  gridY: number;
-  avgR: number;
-  avgG: number;
-  avgB: number;
-  avgA: number;
-  isSubject: boolean;  // 是否属于主体（有任何不透明内容）
-}
-
 interface PixelateResult {
   fullImage: string;      // 完整图片（带白色背景和网格线）
   subjectImage: string;   // 单独的像素化主体（透明背景）
@@ -1132,7 +1150,6 @@ interface PixelateResult {
     offsetX: number;      // 在800×800画布上的X偏移（像素）
     offsetY: number;      // 在800×800画布上的Y偏移（像素）
     cellSize: number;     // 每个网格单元的像素大小
-    cells: SubjectCell[]; // 所有网格的颜色信息
   };
 }
 
@@ -1194,9 +1211,6 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       subjectCanvas.width = alignedWidth;
       subjectCanvas.height = alignedHeight;
 
-      // Array to store all cell information
-      const cells: SubjectCell[] = [];
-
       // Pixelate each grid cell of the subject
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
@@ -1227,80 +1241,15 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
             const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
             
-            cells.push({
-              gridX, gridY,
-              avgR, avgG, avgB, avgA,
-              isSubject: avgA > 10  // 有任何不透明内容
-            });
-            
-            // Draw all cells within subject bounding box
-            // For transparent cells, we still draw them (they will be filled in bead pattern)
-            subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA > 10 ? avgA / 255 : 0})`;
-            subjectCtx.fillRect(
-              gridX * cellSize,
-              gridY * cellSize,
-              cellSize,
-              cellSize
-            );
-          }
-        }
-      }
-      
-      // Step 3.5: Fill holes in subject - for cells with isSubject=false but surrounded by isSubject=true
-      // This ensures the subject boundary is complete
-      const cellsMap = new Map<string, SubjectCell>();
-      for (const cell of cells) {
-        cellsMap.set(`${cell.gridX},${cell.gridY}`, cell);
-      }
-      
-      // Find bounding box of subject cells
-      let minSubjectX = cellCountX, maxSubjectX = 0;
-      let minSubjectY = cellCountY, maxSubjectY = 0;
-      for (const cell of cells) {
-        if (cell.isSubject) {
-          minSubjectX = Math.min(minSubjectX, cell.gridX);
-          maxSubjectX = Math.max(maxSubjectX, cell.gridX);
-          minSubjectY = Math.min(minSubjectY, cell.gridY);
-          maxSubjectY = Math.max(maxSubjectY, cell.gridY);
-        }
-      }
-      
-      // Mark all cells within subject bounding box as part of subject for bead pattern
-      // For transparent cells inside the bounding box, use nearest non-transparent cell's color
-      const getNearestSubjectColor = (x: number, y: number): { r: number; g: number; b: number } | null => {
-        // Search in expanding circles
-        for (let radius = 1; radius <= Math.max(cellCountX, cellCountY); radius++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            for (let dy = -radius; dy <= radius; dy++) {
-              if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
-              const nx = x + dx;
-              const ny = y + dy;
-              const neighbor = cellsMap.get(`${nx},${ny}`);
-              if (neighbor && neighbor.isSubject) {
-                return { r: neighbor.avgR, g: neighbor.avgG, b: neighbor.avgB };
-              }
-            }
-          }
-        }
-        return null;
-      };
-      
-      // Update cells inside subject bounding box
-      for (const cell of cells) {
-        // If cell is within subject bounding box but not marked as subject
-        if (cell.gridX >= minSubjectX && cell.gridX <= maxSubjectX &&
-            cell.gridY >= minSubjectY && cell.gridY <= maxSubjectY) {
-          // Mark as part of subject boundary
-          cell.isSubject = true;
-          
-          // If transparent, fill with nearest subject color
-          if (cell.avgA < 10) {
-            const nearestColor = getNearestSubjectColor(cell.gridX, cell.gridY);
-            if (nearestColor) {
-              cell.avgR = nearestColor.r;
-              cell.avgG = nearestColor.g;
-              cell.avgB = nearestColor.b;
-              cell.avgA = 255;  // Make it opaque for bead pattern
+            // Only draw if pixel has some opacity (is part of subject)
+            if (avgA > 10) {
+              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+              subjectCtx.fillRect(
+                gridX * cellSize,
+                gridY * cellSize,
+                cellSize,
+                cellSize
+              );
             }
           }
         }
@@ -1372,8 +1321,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
           cellCountY,
           offsetX,
           offsetY,
-          cellSize,
-          cells
+          cellSize
         }
       });
     };
@@ -1603,118 +1551,95 @@ async function generateBeadPattern(
 }
 
 // Generate high-definition bead pattern for download
-// Input: pixelated subject image (transparent background) + pre-computed cells info
-// Process: use cells info to fill all subject cells with MARD colors
+// Input: pixelated subject image (transparent background)
+// Process: read subject colors → match MARD colors → place on blank grid
 async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
-  scale: number = 3,
-  subjectCells?: SubjectCell[]
+  scale: number = 3
 ): Promise<{ image: string; legend: MardColor[] }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Step 1: Calculate cell size in source image
-      const srcCellSize = 800 / gridSize;
-      const srcCellCountX = subjectCells?.length ? Math.max(...subjectCells.map(c => c.gridX)) + 1 : Math.round(img.width / srcCellSize);
-      const srcCellCountY = subjectCells?.length ? Math.max(...subjectCells.map(c => c.gridY)) + 1 : Math.round(img.height / srcCellSize);
+      // Step 1: Get source image data (pixelated subject with transparent background)
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) {
+        reject(new Error('无法创建源画布'));
+        return;
+      }
       
-      // Step 2: Use pre-computed cells if available, otherwise fall back to reading from image
-      let blocksInfo: Array<{
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      srcCtx.drawImage(img, 0, 0);
+      
+      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
+      const srcData = srcImageData.data;
+      
+      // Calculate cell size in source image
+      // Subject image size is aligned to grid cells, each cell is (800 / gridSize) pixels
+      const srcCellSize = 800 / gridSize;
+      const srcCellCountX = Math.round(img.width / srcCellSize);
+      const srcCellCountY = Math.round(img.height / srcCellSize);
+      
+      // Step 2: Read colors from each cell, skip transparent cells
+      const blocksInfo: Array<{
         gridX: number;
         gridY: number;
         avgR: number;
         avgG: number;
         avgB: number;
         avgA: number;
-        isSubject: boolean;
         nearestColor: MardColor;
       }> = [];
       
       const colorUsageCount = new Map<string, number>();
       
-      if (subjectCells && subjectCells.length > 0) {
-        // Use pre-computed cells info - this includes all cells within subject boundary
-        for (const cell of subjectCells) {
-          // Find nearest MARD color
-          const nearestColor = findClosestMardColor(cell.avgR, cell.avgG, cell.avgB);
+      for (let cellY = 0; cellY < srcCellCountY; cellY++) {
+        for (let cellX = 0; cellX < srcCellCountX; cellX++) {
+          // Calculate average color for this cell
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
           
-          blocksInfo.push({
-            gridX: cell.gridX,
-            gridY: cell.gridY,
-            avgR: cell.avgR,
-            avgG: cell.avgG,
-            avgB: cell.avgB,
-            avgA: cell.avgA,
-            isSubject: cell.isSubject,
-            nearestColor
-          });
+          const startX = Math.floor(cellX * srcCellSize);
+          const startY = Math.floor(cellY * srcCellSize);
+          const endX = Math.floor((cellX + 1) * srcCellSize);
+          const endY = Math.floor((cellY + 1) * srcCellSize);
           
-          // Count color usage (only for subject cells)
-          if (cell.isSubject) {
-            const count = colorUsageCount.get(nearestColor.code) || 0;
-            colorUsageCount.set(nearestColor.code, count + 1);
-          }
-        }
-      } else {
-        // Fallback: read from image
-        const srcCanvas = document.createElement('canvas');
-        const srcCtx = srcCanvas.getContext('2d');
-        if (!srcCtx) {
-          reject(new Error('无法创建源画布'));
-          return;
-        }
-        
-        srcCanvas.width = img.width;
-        srcCanvas.height = img.height;
-        srcCtx.drawImage(img, 0, 0);
-        
-        const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
-        const srcData = srcImageData.data;
-        
-        for (let cellY = 0; cellY < srcCellCountY; cellY++) {
-          for (let cellX = 0; cellX < srcCellCountX; cellX++) {
-            let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-            let pixelCount = 0;
-            
-            const startX = Math.floor(cellX * srcCellSize);
-            const startY = Math.floor(cellY * srcCellSize);
-            const endX = Math.floor((cellX + 1) * srcCellSize);
-            const endY = Math.floor((cellY + 1) * srcCellSize);
-            
-            for (let y = startY; y < endY && y < img.height; y++) {
-              for (let x = startX; x < endX && x < img.width; x++) {
-                const idx = (y * img.width + x) * 4;
-                totalR += srcData[idx];
-                totalG += srcData[idx + 1];
-                totalB += srcData[idx + 2];
-                totalA += srcData[idx + 3];
-                pixelCount++;
-              }
+          for (let y = startY; y < endY && y < img.height; y++) {
+            for (let x = startX; x < endX && x < img.width; x++) {
+              const idx = (y * img.width + x) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
+              pixelCount++;
             }
+          }
+          
+          if (pixelCount > 0) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
             
-            if (pixelCount > 0) {
-              const avgR = Math.round(totalR / pixelCount);
-              const avgG = Math.round(totalG / pixelCount);
-              const avgB = Math.round(totalB / pixelCount);
-              const avgA = Math.round(totalA / pixelCount);
+            // Only process cells that have visible content (alpha > 10)
+            if (avgA > 10) {
+              // Find nearest MARD color
+              const nearestColor = findClosestMardColor(avgR, avgG, avgB);
               
-              if (avgA > 10) {
-                const nearestColor = findClosestMardColor(avgR, avgG, avgB);
-                
-                blocksInfo.push({
-                  gridX: cellX,
-                  gridY: cellY,
-                  avgR, avgG, avgB, avgA,
-                  isSubject: true,
-                  nearestColor
-                });
-                
-                const count = colorUsageCount.get(nearestColor.code) || 0;
-                colorUsageCount.set(nearestColor.code, count + 1);
-              }
+              blocksInfo.push({
+                gridX: cellX,
+                gridY: cellY,
+                avgR, avgG, avgB, avgA,
+                nearestColor
+              });
+              
+              // Count color usage
+              const count = colorUsageCount.get(nearestColor.code) || 0;
+              colorUsageCount.set(nearestColor.code, count + 1);
             }
           }
         }
@@ -1763,8 +1688,11 @@ async function generateBeadPatternHD(
       ctx.fillRect(0, 0, totalSize, totalSize);
       
       // Step 5: Calculate subject position on target canvas
-      const offsetX = marginSize + Math.floor((gridSize - srcCellCountX) / 2) * cellSize;
-      const offsetY = marginSize + Math.floor((gridSize - srcCellCountY) / 2) * cellSize;
+      // Subject area = 0.9 of grid, centered
+      const subjectCellCountX = srcCellCountX;
+      const subjectCellCountY = srcCellCountY;
+      const offsetX = marginSize + Math.floor((gridSize - subjectCellCountX) / 2) * cellSize;
+      const offsetY = marginSize + Math.floor((gridSize - subjectCellCountY) / 2) * cellSize;
       
       // Helper function to parse hex to RGB
       const hexToRgb = (hex: string) => {
@@ -1791,9 +1719,6 @@ async function generateBeadPatternHD(
       }> = [];
       
       for (const block of blocksInfo) {
-        // Only process subject cells
-        if (!block.isSubject) continue;
-        
         let finalColor = block.nearestColor;
         
         // If color not in selected colors, find closest from selected
