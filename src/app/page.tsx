@@ -1778,6 +1778,52 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
       
+      // Step 7.5: Draw red edge lines around subject
+      // Create a set of all colored cell positions for edge detection
+      const coloredCells = new Set<string>();
+      for (const block of blocksInfo) {
+        coloredCells.add(`${block.gridX},${block.gridY}`);
+      }
+      
+      // Check each colored cell for edges
+      const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+      
+      for (const block of blocksInfo) {
+        const { gridX, gridY } = block;
+        const x = offsetX + gridX * cellSize;
+        const y = offsetY + gridY * cellSize;
+        
+        // Check four directions: top, bottom, left, right
+        // Top edge (no colored cell above)
+        if (!coloredCells.has(`${gridX},${gridY - 1}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
+        }
+        // Bottom edge (no colored cell below)
+        if (!coloredCells.has(`${gridX},${gridY + 1}`)) {
+          edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
+        }
+        // Left edge (no colored cell on left)
+        if (!coloredCells.has(`${gridX - 1},${gridY}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
+        }
+        // Right edge (no colored cell on right)
+        if (!coloredCells.has(`${gridX + 1},${gridY}`)) {
+          edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
+        }
+      }
+      
+      // Draw red edge lines
+      ctx.strokeStyle = '#ef4444';  // Red color
+      ctx.lineWidth = Math.max(2, Math.floor(scale * 1));
+      ctx.lineCap = 'round';
+      
+      for (const line of edgeLines) {
+        ctx.beginPath();
+        ctx.moveTo(line.x1, line.y1);
+        ctx.lineTo(line.x2, line.y2);
+        ctx.stroke();
+      }
+      
       // Step 8: Draw grid lines
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
