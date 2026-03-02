@@ -1087,12 +1087,38 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       let imgWidth = img.width * scaleFactor;
       let imgHeight = img.height * scaleFactor;
 
-      // Center the image
-      const x = (width - imgWidth) / 2;
-      const y = (height - imgHeight) / 2;
+      // Align to grid cells
+      const alignedImgWidth = Math.round(imgWidth / cellSize) * cellSize;
+      const alignedImgHeight = Math.round(imgHeight / cellSize) * cellSize;
+      
+      // Center the image (aligned to grid)
+      const offsetX = Math.round((width - alignedImgWidth) / 2 / cellSize) * cellSize;
+      const offsetY = Math.round((height - alignedImgHeight) / 2 / cellSize) * cellSize;
       
       // Draw the image
-      ctx.drawImage(img, x, y, imgWidth, imgHeight);
+      ctx.drawImage(img, offsetX, offsetY, alignedImgWidth, alignedImgHeight);
+      
+      // Get image data for edge detection
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      
+      // Detect colored cells (alpha > 10 means it's part of subject)
+      const coloredCells = new Set<string>();
+      const cellCountX = Math.round(alignedImgWidth / cellSize);
+      const cellCountY = Math.round(alignedImgHeight / cellSize);
+      
+      for (let cellY = 0; cellY < cellCountY; cellY++) {
+        for (let cellX = 0; cellX < cellCountX; cellX++) {
+          // Check center of each cell for alpha
+          const centerX = Math.floor(offsetX + (cellX + 0.5) * cellSize);
+          const centerY = Math.floor(offsetY + (cellY + 0.5) * cellSize);
+          const idx = (centerY * width + centerX) * 4;
+          
+          if (data[idx + 3] > 10) {  // Alpha channel
+            coloredCells.add(`${cellX},${cellY}`);
+          }
+        }
+      }
 
       // Step 3: Draw grid lines ON TOP
       ctx.strokeStyle = '#d1d5db';
@@ -1117,8 +1143,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         ctx.strokeStyle = '#9ca3af';
         ctx.lineWidth = 2;
         
-        const majorInterval = 5;
-        for (let i = 0; i <= gridCount; i += majorInterval) {
+        for (let i = 0; i <= gridCount; i += 5) {
           const pos = i * cellSize;
           
           ctx.beginPath();
@@ -1131,6 +1156,45 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
           ctx.lineTo(width, pos);
           ctx.stroke();
         }
+      }
+
+      // Step 4: Draw red edge lines around subject
+      const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+      
+      for (const key of coloredCells) {
+        const [cellX, cellY] = key.split(',').map(Number);
+        const x = offsetX + cellX * cellSize;
+        const y = offsetY + cellY * cellSize;
+        
+        // Check four directions: top, bottom, left, right
+        // Top edge (no colored cell above)
+        if (!coloredCells.has(`${cellX},${cellY - 1}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
+        }
+        // Bottom edge (no colored cell below)
+        if (!coloredCells.has(`${cellX},${cellY + 1}`)) {
+          edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
+        }
+        // Left edge (no colored cell on left)
+        if (!coloredCells.has(`${cellX - 1},${cellY}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
+        }
+        // Right edge (no colored cell on right)
+        if (!coloredCells.has(`${cellX + 1},${cellY}`)) {
+          edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
+        }
+      }
+      
+      // Draw red edge lines
+      ctx.strokeStyle = '#ef4444';  // Red color
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      
+      for (const line of edgeLines) {
+        ctx.beginPath();
+        ctx.moveTo(line.x1, line.y1);
+        ctx.lineTo(line.x2, line.y2);
+        ctx.stroke();
       }
 
       resolve(canvas.toDataURL('image/png'));
@@ -1211,6 +1275,9 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       subjectCanvas.width = alignedWidth;
       subjectCanvas.height = alignedHeight;
 
+      // Track colored cells for edge detection
+      const coloredCells = new Set<string>();
+
       // Pixelate each grid cell of the subject
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
@@ -1250,6 +1317,8 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
                 cellSize,
                 cellSize
               );
+              // Track this cell as colored
+              coloredCells.add(`${gridX},${gridY}`);
             }
           }
         }
@@ -1310,6 +1379,45 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
           resultCtx.lineTo(gridSize, pos);
           resultCtx.stroke();
         }
+      }
+
+      // Step 7: Draw red edge lines around subject
+      const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+      
+      for (const key of coloredCells) {
+        const [gridX, gridY] = key.split(',').map(Number);
+        const x = offsetX + gridX * cellSize;
+        const y = offsetY + gridY * cellSize;
+        
+        // Check four directions: top, bottom, left, right
+        // Top edge (no colored cell above)
+        if (!coloredCells.has(`${gridX},${gridY - 1}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
+        }
+        // Bottom edge (no colored cell below)
+        if (!coloredCells.has(`${gridX},${gridY + 1}`)) {
+          edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
+        }
+        // Left edge (no colored cell on left)
+        if (!coloredCells.has(`${gridX - 1},${gridY}`)) {
+          edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
+        }
+        // Right edge (no colored cell on right)
+        if (!coloredCells.has(`${gridX + 1},${gridY}`)) {
+          edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
+        }
+      }
+      
+      // Draw red edge lines
+      resultCtx.strokeStyle = '#ef4444';  // Red color
+      resultCtx.lineWidth = 2;
+      resultCtx.lineCap = 'round';
+      
+      for (const line of edgeLines) {
+        resultCtx.beginPath();
+        resultCtx.moveTo(line.x1, line.y1);
+        resultCtx.lineTo(line.x2, line.y2);
+        resultCtx.stroke();
       }
 
       // Return both full image and subject image
