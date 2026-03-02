@@ -1362,11 +1362,23 @@ async function generateBeadPattern(
       canvas.width = img.width;
       canvas.height = img.height;
       
-      // Draw the original pixelated image (keep it as is)
-      ctx.drawImage(img, 0, 0);
+      // Fill with white background first
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
+      // Get source image data for processing
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) {
+        reject(new Error('无法创建源画布'));
+        return;
+      }
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      srcCtx.drawImage(img, 0, 0);
+      
+      const srcImageData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+      const srcData = srcImageData.data;
 
       // Calculate pixel size - the pixelated image is 800x800, divided by grid count
       const canvasSize = 800; // Fixed size from pixelateImage
@@ -1391,7 +1403,7 @@ async function generateBeadPattern(
         avgB: number;
       }> = [];
 
-      // Process each pixel block - just get colors and find MARD codes
+      // Process each pixel block - fill subject area with colors, leave background white
       for (let gridY = 0; gridY < gridSize; gridY++) {
         for (let gridX = 0; gridX < gridSize; gridX++) {
           // Calculate pixel block boundaries
@@ -1400,33 +1412,39 @@ async function generateBeadPattern(
           const x2 = Math.min(Math.floor((gridX + 1) * pixelSize), canvas.width);
           const y2 = Math.min(Math.floor((gridY + 1) * pixelSize), canvas.height);
 
-          // Calculate average color for this block
+          // Calculate average color for this block from source
           let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
 
           for (let y = y1; y < y2; y++) {
             for (let x = x1; x < x2; x++) {
-              const idx = (y * canvas.width + x) * 4;
-              totalR += data[idx];
-              totalG += data[idx + 1];
-              totalB += data[idx + 2];
-              totalA += data[idx + 3];
+              const idx = (y * srcCanvas.width + x) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
               pixelCount++;
             }
           }
 
-          if (pixelCount > 0 && totalA / pixelCount > 25) { // Skip transparent pixels
+          // Only process subject area (non-transparent pixels)
+          // Background (transparent) stays white with no color code
+          if (pixelCount > 0 && totalA / pixelCount > 25) {
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
 
-            // Find nearest MARD color
+            // Find nearest MARD color for the legend
             const nearestColor = findClosestMardColor(avgR, avgG, avgB);
             
             // Track color for legend
             if (!colorMap.has(nearestColor.code)) {
               colorMap.set(nearestColor.code, nearestColor);
             }
+
+            // Fill the block with original average color (keep pixelated look)
+            ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
             // Store block info for text drawing
             blocksInfo.push({
@@ -1440,10 +1458,11 @@ async function generateBeadPattern(
               avgB
             });
           }
+          // Else: transparent/background area stays white, no color code
         }
       }
 
-      // Draw MARD color codes on each block
+      // Draw MARD color codes only on subject blocks
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
