@@ -1580,20 +1580,16 @@ async function generateBeadPatternHD(
         avgB: number;
       }> = [];
 
-      // First pass: collect all block colors and count usage
-      const rawBlocks: Array<{
+      // Step 1: Pixelate the entire subject area (including transparent parts)
+      // All blocks within subject boundary will get a color code
+      const pixelatedBlocks: Array<{
         gridX: number;
         gridY: number;
         avgR: number;
         avgG: number;
         avgB: number;
-        avgA: number;
         nearestColor: MardColor;
-        isTransparent: boolean;
       }> = [];
-
-      // Track which blocks have any non-transparent content
-      const hasContent: boolean[][] = Array(cellCountY).fill(null).map(() => Array(cellCountX).fill(false));
 
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
@@ -1622,100 +1618,54 @@ async function generateBeadPatternHD(
             }
           }
 
-          // Process blocks that have any non-transparent pixels
-          if (pixelCount > 0 && nonTransparentPixels > 0) {
+          // Calculate effective color
+          let effectiveR: number, effectiveG: number, effectiveB: number;
+          
+          if (nonTransparentPixels > 0 && totalA > 0) {
+            // Non-transparent area: use actual color
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
-            const avgA = totalA / pixelCount;
-
-            // For transparent blocks, use white as base color (will be filled later)
-            const effectiveR = avgA > 10 ? avgR : 255;
-            const effectiveG = avgA > 10 ? avgG : 255;
-            const effectiveB = avgA > 10 ? avgB : 255;
-
-            // Find nearest MARD color
-            const nearestColor = findClosestMardColor(effectiveR, effectiveG, effectiveB);
-            
-            rawBlocks.push({ 
-              gridX, gridY, 
-              avgR: effectiveR, avgG: effectiveG, avgB: effectiveB, avgA,
-              nearestColor, 
-              isTransparent: avgA < 10 
-            });
-            hasContent[gridY][gridX] = true;
-            
-            // Count usage (only non-transparent blocks)
-            if (avgA >= 10) {
-              const count = colorUsageCount.get(nearestColor.code) || 0;
-              colorUsageCount.set(nearestColor.code, count + 1);
-            }
+            effectiveR = avgR;
+            effectiveG = avgG;
+            effectiveB = avgB;
+          } else {
+            // Transparent area within subject: use white
+            effectiveR = 255;
+            effectiveG = 255;
+            effectiveB = 255;
           }
+
+          // Find nearest MARD color
+          const nearestColor = findClosestMardColor(effectiveR, effectiveG, effectiveB);
+          
+          pixelatedBlocks.push({ 
+            gridX, gridY, 
+            avgR: effectiveR, avgG: effectiveG, avgB: effectiveB,
+            nearestColor
+          });
+          
+          // Count usage
+          const count = colorUsageCount.get(nearestColor.code) || 0;
+          colorUsageCount.set(nearestColor.code, count + 1);
         }
       }
 
-      // Second pass: fill transparent blocks that are inside subject boundary
-      // A block is inside if it has content and has at least one non-transparent neighbor
-      for (let i = 0; i < rawBlocks.length; i++) {
-        const block = rawBlocks[i];
-        if (block.isTransparent) {
-          // Find nearest non-transparent neighbor color
-          const neighbors = [
-            { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
-            { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
-            { dx: -1, dy: -1 }, { dx: 1, dy: -1 },
-            { dx: -1, dy: 1 }, { dx: 1, dy: 1 }
-          ];
-          
-          let nearestNonTransparent = null;
-          let minDist = Infinity;
-          
-          for (const { dx, dy } of neighbors) {
-            const nx = block.gridX + dx;
-            const ny = block.gridY + dy;
-            if (nx >= 0 && nx < cellCountX && ny >= 0 && ny < cellCountY) {
-              const neighbor = rawBlocks.find(b => b.gridX === nx && b.gridY === ny && !b.isTransparent);
-              if (neighbor) {
-                const dist = Math.abs(dx) + Math.abs(dy);
-                if (dist < minDist) {
-                  minDist = dist;
-                  nearestNonTransparent = neighbor;
-                }
-              }
-            }
-          }
-          
-          if (nearestNonTransparent) {
-            block.avgR = nearestNonTransparent.avgR;
-            block.avgG = nearestNonTransparent.avgG;
-            block.avgB = nearestNonTransparent.avgB;
-            block.nearestColor = nearestNonTransparent.nearestColor;
-            block.isTransparent = false;
-            
-            // Count this color too
-            const count = colorUsageCount.get(block.nearestColor.code) || 0;
-            colorUsageCount.set(block.nearestColor.code, count + 1);
-          }
-        }
-      }
-
-      // Limit to max 20 colors by keeping most frequently used
+      // Step 2: Limit to max 20 colors by keeping most frequently used
       const MAX_COLORS = 20;
       let selectedColors: MardColor[];
       
       if (colorUsageCount.size <= MAX_COLORS) {
-        // Use all colors if within limit
         selectedColors = Array.from(colorUsageCount.keys()).map(code => {
-          const block = rawBlocks.find(b => b.nearestColor.code === code)!;
+          const block = pixelatedBlocks.find(b => b.nearestColor.code === code)!;
           return block.nearestColor;
         });
       } else {
-        // Sort by usage count and keep top 20
         const sortedColors = Array.from(colorUsageCount.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, MAX_COLORS)
           .map(([code]) => {
-            const block = rawBlocks.find(b => b.nearestColor.code === code)!;
+            const block = pixelatedBlocks.find(b => b.nearestColor.code === code)!;
             return block.nearestColor;
           });
         selectedColors = sortedColors;
@@ -1733,8 +1683,8 @@ async function generateBeadPatternHD(
         } : { r: 0, g: 0, b: 0 };
       };
 
-      // Second pass: draw blocks with limited colors
-      for (const block of rawBlocks) {
+      // Step 3: Draw pixelated subject on grid (all blocks within subject area)
+      for (const block of pixelatedBlocks) {
         const x1 = offsetX + block.gridX * cellSize;
         const y1 = offsetY + block.gridY * cellSize;
         
