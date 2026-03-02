@@ -334,15 +334,17 @@ export default function Home() {
     }
   }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
 
-  // Generate bead pattern from pixelated image
+  // Generate bead pattern from subject image (cartoon or normal cutout)
   const handleGenerateBeadPattern = useCallback(async () => {
-    if (!pixelatedImage || isGeneratingBeadPattern) return;
+    // Use subject image (cartoon or normal cutout), not pixelated image
+    const subjectImage = useAnimeImage ? animeImage : removedBgImage;
+    if (!subjectImage || isGeneratingBeadPattern) return;
 
     setIsGeneratingBeadPattern(true);
     setError(null);
 
     try {
-      const result = await generateBeadPattern(pixelatedImage, gridSize);
+      const result = await generateBeadPatternHD(subjectImage, gridSize, 1);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
     } catch (err) {
@@ -351,7 +353,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedImage, gridSize, isGeneratingBeadPattern]);
+  }, [removedBgImage, animeImage, useAnimeImage, gridSize, isGeneratingBeadPattern]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -376,15 +378,17 @@ export default function Home() {
   }, [pixelatedImage, gridSize, animeImage]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    if (!pixelatedImage) return;
+    // Use subject image (cartoon or normal cutout), not pixelated image
+    const subjectImage = useAnimeImage ? animeImage : removedBgImage;
+    if (!subjectImage) return;
 
     try {
       // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedImage, gridSize, 3);
+      const result = await generateBeadPatternHD(subjectImage, gridSize, 3);
       
       const link = document.createElement('a');
       link.href = result.image;
-      link.download = `bead-pattern-hd-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+      link.download = `bead-pattern-hd-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -394,7 +398,7 @@ export default function Home() {
       if (beadPatternImage) {
         const link = document.createElement('a');
         link.href = beadPatternImage;
-        link.download = `bead-pattern-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+        link.download = `bead-pattern-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -1512,8 +1516,9 @@ async function generateBeadPattern(
 }
 
 // Generate high-definition bead pattern for download
+// Based on subject image (cartoon or normal cutout), pixelate subject only and place on transparent grid
 async function generateBeadPatternHD(
-  imageUrl: string,
+  subjectImageUrl: string,
   gridSize: number,
   scale: number = 3
 ): Promise<{ image: string; legend: MardColor[] }> {
@@ -1522,25 +1527,25 @@ async function generateBeadPatternHD(
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      // Create HD canvas with extra space for edge numbers
+      const gridAreaSize = 800 * scale;
+      const marginSize = 50 * scale;
+      const totalSize = gridAreaSize + marginSize * 2;
+      const cellSize = gridAreaSize / gridSize;
       
+      const canvas = document.createElement('canvas');
+      canvas.width = totalSize;
+      canvas.height = totalSize;
+      
+      const ctx = canvas.getContext('2d');
       if (!ctx) {
         reject(new Error('无法创建画布'));
         return;
       }
 
-      // Create HD canvas (scaled up for better text readability)
-      const baseSize = 800;
-      const hdSize = baseSize * scale;
-      const pixelSize = hdSize / gridSize;
-      
-      canvas.width = hdSize;
-      canvas.height = hdSize;
-      
-      // Fill white background
+      // Fill with white background
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, hdSize, hdSize);
+      ctx.fillRect(0, 0, totalSize, totalSize);
 
       // Get source image data
       const srcCanvas = document.createElement('canvas');
@@ -1555,12 +1560,41 @@ async function generateBeadPatternHD(
       
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
+
+      // Calculate subject size (90% of grid) aligned to grid lines
+      const maxSubjectSize = gridAreaSize * 0.9;
+      let scaledWidth = img.width;
+      let scaledHeight = img.height;
       
+      if (scaledWidth > scaledHeight) {
+        if (scaledWidth > maxSubjectSize) {
+          scaledHeight = (scaledHeight / scaledWidth) * maxSubjectSize;
+          scaledWidth = maxSubjectSize;
+        }
+      } else {
+        if (scaledHeight > maxSubjectSize) {
+          scaledWidth = (scaledWidth / scaledHeight) * maxSubjectSize;
+          scaledHeight = maxSubjectSize;
+        }
+      }
+
+      // Align size to grid cells
+      const alignedWidth = Math.round(scaledWidth / cellSize) * cellSize;
+      const alignedHeight = Math.round(scaledHeight / cellSize) * cellSize;
+      
+      // Calculate grid cell counts for subject
+      const cellCountX = Math.round(alignedWidth / cellSize);
+      const cellCountY = Math.round(alignedHeight / cellSize);
+      
+      // Calculate offset (centered, accounting for margin)
+      const offsetX = marginSize + Math.round((gridAreaSize - alignedWidth) / 2 / cellSize) * cellSize;
+      const offsetY = marginSize + Math.round((gridAreaSize - alignedHeight) / 2 / cellSize) * cellSize;
+
       // Color tracking for legend
       const colorMap = new Map<string, MardColor>();
 
-      // Calculate font size based on pixel size - larger for HD
-      const fontSize = Math.max(12, Math.floor(pixelSize * 0.4));
+      // Calculate font size based on cell size - larger for HD
+      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
       
       // Store blocks info for drawing text later
       const blocksInfo: Array<{
@@ -1574,20 +1608,18 @@ async function generateBeadPatternHD(
         avgB: number;
       }> = [];
 
-      // Process each pixel block
-      for (let gridY = 0; gridY < gridSize; gridY++) {
-        for (let gridX = 0; gridX < gridSize; gridX++) {
-          // Calculate pixel block boundaries in HD canvas
-          const x1 = Math.floor(gridX * pixelSize);
-          const y1 = Math.floor(gridY * pixelSize);
-          const x2 = Math.floor((gridX + 1) * pixelSize);
-          const y2 = Math.floor((gridY + 1) * pixelSize);
-
+      // Pixelate the subject and draw MARD colors
+      for (let gridY = 0; gridY < cellCountY; gridY++) {
+        for (let gridX = 0; gridX < cellCountX; gridX++) {
+          // Calculate pixel block position on canvas
+          const x1 = offsetX + gridX * cellSize;
+          const y1 = offsetY + gridY * cellSize;
+          
           // Calculate corresponding source region
-          const srcX1 = Math.floor(gridX / gridSize * img.width);
-          const srcY1 = Math.floor(gridY / gridSize * img.height);
-          const srcX2 = Math.floor((gridX + 1) / gridSize * img.width);
-          const srcY2 = Math.floor((gridY + 1) / gridSize * img.height);
+          const srcX1 = Math.floor(gridX / cellCountX * img.width);
+          const srcY1 = Math.floor(gridY / cellCountY * img.height);
+          const srcX2 = Math.floor((gridX + 1) / cellCountX * img.width);
+          const srcY2 = Math.floor((gridY + 1) / cellCountY * img.height);
 
           // Calculate average color from source region
           let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
@@ -1604,6 +1636,7 @@ async function generateBeadPatternHD(
             }
           }
 
+          // Only process non-transparent pixels (subject area)
           if (pixelCount > 0 && totalA / pixelCount > 25) {
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
@@ -1619,14 +1652,14 @@ async function generateBeadPatternHD(
 
             // Fill the block with original average color
             ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.fillRect(x1, y1, cellSize, cellSize);
 
             // Store block info for text drawing
             blocksInfo.push({
               x: x1,
               y: y1,
-              width: x2 - x1,
-              height: y2 - y1,
+              width: cellSize,
+              height: cellSize,
               color: nearestColor,
               avgR,
               avgG,
@@ -1636,7 +1669,7 @@ async function generateBeadPatternHD(
         }
       }
 
-      // Draw MARD color codes on each block
+      // Draw MARD color codes on subject blocks
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
@@ -1650,21 +1683,23 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
 
-      // Draw grid lines on top
+      // Draw grid lines
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = scale;
 
       for (let i = 0; i <= gridSize; i++) {
-        const pos = Math.floor(i * pixelSize);
+        const pos = marginSize + i * cellSize;
         
+        // Vertical line
         ctx.beginPath();
-        ctx.moveTo(pos, 0);
-        ctx.lineTo(pos, hdSize);
+        ctx.moveTo(pos, marginSize);
+        ctx.lineTo(pos, marginSize + gridAreaSize);
         ctx.stroke();
         
+        // Horizontal line
         ctx.beginPath();
-        ctx.moveTo(0, pos);
-        ctx.lineTo(hdSize, pos);
+        ctx.moveTo(marginSize, pos);
+        ctx.lineTo(marginSize + gridAreaSize, pos);
         ctx.stroke();
       }
 
@@ -1674,18 +1709,50 @@ async function generateBeadPatternHD(
         ctx.lineWidth = scale * 2;
         
         for (let i = 0; i <= gridSize; i += 5) {
-          const pos = Math.floor(i * pixelSize);
+          const pos = marginSize + i * cellSize;
           
           ctx.beginPath();
-          ctx.moveTo(pos, 0);
-          ctx.lineTo(pos, hdSize);
+          ctx.moveTo(pos, marginSize);
+          ctx.lineTo(pos, marginSize + gridAreaSize);
           ctx.stroke();
           
           ctx.beginPath();
-          ctx.moveTo(0, pos);
-          ctx.lineTo(hdSize, pos);
+          ctx.moveTo(marginSize, pos);
+          ctx.lineTo(marginSize + gridAreaSize, pos);
           ctx.stroke();
         }
+      }
+
+      // Draw edge numbers (1,2,3... for both axes)
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const numberFontSize = Math.max(14, Math.min(24, marginSize / 2.5));
+      ctx.font = `bold ${numberFontSize}px Arial`;
+
+      // Top edge numbers (1,2,3...)
+      for (let i = 0; i < gridSize; i++) {
+        const x = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), x, marginSize / 2);
+      }
+
+      // Bottom edge numbers (1,2,3...)
+      for (let i = 0; i < gridSize; i++) {
+        const x = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), x, totalSize - marginSize / 2);
+      }
+
+      // Left edge numbers (1,2,3...)
+      ctx.textAlign = 'center';
+      for (let i = 0; i < gridSize; i++) {
+        const y = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), marginSize / 2, y);
+      }
+
+      // Right edge numbers (1,2,3...)
+      for (let i = 0; i < gridSize; i++) {
+        const y = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), totalSize - marginSize / 2, y);
       }
 
       // Convert color map to legend array
@@ -1698,6 +1765,6 @@ async function generateBeadPatternHD(
     };
 
     img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = imageUrl;
+    img.src = subjectImageUrl;
   });
 }
