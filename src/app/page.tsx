@@ -1660,7 +1660,7 @@ async function generateBeadPattern(
 
 // Generate high-definition bead pattern for download
 // Input: pixelated subject image (transparent background)
-// Process: read subject colors → match MARD colors → place on blank grid
+// Process: read subject colors → fill all cells inside subject outline → place on blank grid
 async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
@@ -1687,34 +1687,23 @@ async function generateBeadPatternHD(
       const srcData = srcImageData.data;
       
       // Calculate cell size in source image
-      // Subject image size is aligned to grid cells, each cell is (800 / gridSize) pixels
       const srcCellSize = 800 / gridSize;
       const srcCellCountX = Math.round(img.width / srcCellSize);
       const srcCellCountY = Math.round(img.height / srcCellSize);
       
-      // Step 2: Read colors from each cell, skip transparent cells
-      const blocksInfo: Array<{
-        gridX: number;
-        gridY: number;
-        avgR: number;
-        avgG: number;
-        avgB: number;
-        avgA: number;
-        nearestColor: MardColor;
-      }> = [];
-      
-      const colorUsageCount = new Map<string, number>();
+      // Step 2: Identify colored cells and their colors
+      const coloredCells = new Set<string>();
+      const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
       for (let cellY = 0; cellY < srcCellCountY; cellY++) {
         for (let cellX = 0; cellX < srcCellCountX; cellX++) {
-          // Calculate average color for this cell
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
-          
           const startX = Math.floor(cellX * srcCellSize);
           const startY = Math.floor(cellY * srcCellSize);
           const endX = Math.floor((cellX + 1) * srcCellSize);
           const endY = Math.floor((cellY + 1) * srcCellSize);
+          
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
           
           for (let y = startY; y < endY && y < img.height; y++) {
             for (let x = startX; x < endX && x < img.width; x++) {
@@ -1728,54 +1717,128 @@ async function generateBeadPatternHD(
           }
           
           if (pixelCount > 0) {
-            const avgR = Math.round(totalR / pixelCount);
-            const avgG = Math.round(totalG / pixelCount);
-            const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
-            
-            // Only process cells that have visible content (alpha > 10)
             if (avgA > 10) {
-              // Find nearest MARD color
-              const nearestColor = findClosestMardColor(avgR, avgG, avgB);
-              
-              blocksInfo.push({
-                gridX: cellX,
-                gridY: cellY,
-                avgR, avgG, avgB, avgA,
-                nearestColor
+              const key = `${cellX},${cellY}`;
+              coloredCells.add(key);
+              cellColors.set(key, {
+                avgR: Math.round(totalR / pixelCount),
+                avgG: Math.round(totalG / pixelCount),
+                avgB: Math.round(totalB / pixelCount)
               });
-              
-              // Count color usage
-              const count = colorUsageCount.get(nearestColor.code) || 0;
-              colorUsageCount.set(nearestColor.code, count + 1);
             }
           }
         }
       }
       
-      // Step 3: Limit colors to max 20 (keep most frequently used)
+      // Step 3: Find outline (edge cells)
+      const outlineCells = new Set<string>();
+      for (const key of coloredCells) {
+        const [x, y] = key.split(',').map(Number);
+        // A cell is on the outline if any neighbor is not colored
+        if (!coloredCells.has(`${x},${y - 1}`) ||
+            !coloredCells.has(`${x},${y + 1}`) ||
+            !coloredCells.has(`${x - 1},${y}`) ||
+            !coloredCells.has(`${x + 1},${y}`)) {
+          outlineCells.add(key);
+        }
+      }
+      
+      // Step 4: Fill inside the outline using flood fill from outside
+      // First, find all cells outside the outline, then invert
+      const allCellsInBounds = new Set<string>();
+      for (let y = 0; y < srcCellCountY; y++) {
+        for (let x = 0; x < srcCellCountX; x++) {
+          allCellsInBounds.add(`${x},${y}`);
+        }
+      }
+      
+      // Flood fill from edges to find outside cells
+      const outsideCells = new Set<string>();
+      const stack: string[] = [];
+      
+      // Start from all edge cells that are not colored
+      for (let x = 0; x < srcCellCountX; x++) {
+        const topKey = `${x},0`;
+        const bottomKey = `${x},${srcCellCountY - 1}`;
+        if (!coloredCells.has(topKey)) stack.push(topKey);
+        if (!coloredCells.has(bottomKey)) stack.push(bottomKey);
+      }
+      for (let y = 0; y < srcCellCountY; y++) {
+        const leftKey = `0,${y}`;
+        const rightKey = `${srcCellCountX - 1},${y}`;
+        if (!coloredCells.has(leftKey)) stack.push(leftKey);
+        if (!coloredCells.has(rightKey)) stack.push(rightKey);
+      }
+      
+      while (stack.length > 0) {
+        const key = stack.pop()!;
+        if (outsideCells.has(key)) continue;
+        if (coloredCells.has(key)) continue; // Stop at colored cells (outline)
+        
+        outsideCells.add(key);
+        const [x, y] = key.split(',').map(Number);
+        
+        // Add neighbors
+        if (x > 0) stack.push(`${x - 1},${y}`);
+        if (x < srcCellCountX - 1) stack.push(`${x + 1},${y}`);
+        if (y > 0) stack.push(`${x},${y - 1}`);
+        if (y < srcCellCountY - 1) stack.push(`${x},${y + 1}`);
+      }
+      
+      // Cells inside outline = all cells - outside cells
+      const insideCells = new Set<string>();
+      for (const key of allCellsInBounds) {
+        if (!outsideCells.has(key)) {
+          insideCells.add(key);
+        }
+      }
+      
+      // Step 5: Match colors to MARD for colored cells
+      const colorUsageCount = new Map<string, number>();
+      const mardColorMap = new Map<string, MardColor>();
+      
+      for (const key of coloredCells) {
+        const color = cellColors.get(key)!;
+        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
+        mardColorMap.set(key, mardColor);
+        const count = colorUsageCount.get(mardColor.code) || 0;
+        colorUsageCount.set(mardColor.code, count + 1);
+      }
+      
+      // Step 6: Limit colors to max 20
       const MAX_COLORS = 20;
       let selectedColors: MardColor[];
       
       if (colorUsageCount.size <= MAX_COLORS) {
         selectedColors = Array.from(colorUsageCount.keys()).map(code => {
-          const block = blocksInfo.find(b => b.nearestColor.code === code)!;
-          return block.nearestColor;
+          const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
+          return mardColorMap.get(key)!;
         });
       } else {
         const sortedColors = Array.from(colorUsageCount.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, MAX_COLORS)
           .map(([code]) => {
-            const block = blocksInfo.find(b => b.nearestColor.code === code)!;
-            return block.nearestColor;
+            const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
+            return mardColorMap.get(key)!;
           });
         selectedColors = sortedColors;
       }
       
       const selectedColorCodes = new Set(selectedColors.map(c => c.code));
       
-      // Step 4: Create HD canvas with margin for edge numbers
+      // Helper function
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 255, g: 255, b: 255 };
+      };
+      
+      // Step 7: Create HD canvas
       const gridAreaSize = 800 * scale;
       const marginSize = 50 * scale;
       const totalSize = gridAreaSize + marginSize * 2;
@@ -1791,31 +1854,14 @@ async function generateBeadPatternHD(
         return;
       }
       
-      // Fill with white background
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, totalSize, totalSize);
       
-      // Step 5: Calculate subject position on target canvas
-      // Subject area = 0.9 of grid, centered
-      const subjectCellCountX = srcCellCountX;
-      const subjectCellCountY = srcCellCountY;
-      const offsetX = marginSize + Math.floor((gridSize - subjectCellCountX) / 2) * cellSize;
-      const offsetY = marginSize + Math.floor((gridSize - subjectCellCountY) / 2) * cellSize;
+      // Calculate subject position
+      const offsetX = marginSize + Math.floor((gridSize - srcCellCountX) / 2) * cellSize;
+      const offsetY = marginSize + Math.floor((gridSize - srcCellCountY) / 2) * cellSize;
       
-      // Helper function to parse hex to RGB
-      const hexToRgb = (hex: string) => {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16)
-        } : { r: 0, g: 0, b: 0 };
-      };
-      
-      // Color tracking for legend
-      const colorMap = new Map<string, MardColor>();
-      
-      // Step 6: Draw subject blocks with MARD colors
+      // Step 8: Fill ALL cells inside outline
       const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
       const drawnBlocks: Array<{
         x: number;
@@ -1826,38 +1872,52 @@ async function generateBeadPatternHD(
         rgbB: number;
       }> = [];
       
-      for (const block of blocksInfo) {
-        let finalColor = block.nearestColor;
+      const colorMap = new Map<string, MardColor>();
+      const whiteMardColor: MardColor = { code: 'W', hex: '#FFFFFF' };
+      
+      for (const key of insideCells) {
+        const [gridX, gridY] = key.split(',').map(Number);
+        const x = offsetX + gridX * cellSize;
+        const y = offsetY + gridY * cellSize;
         
-        // If color not in selected colors, find closest from selected
-        if (!selectedColorCodes.has(block.nearestColor.code)) {
-          let minDist = Infinity;
-          for (const color of selectedColors) {
-            const rgb = hexToRgb(color.hex);
-            const dist = Math.sqrt(
-              Math.pow(block.avgR - rgb.r, 2) +
-              Math.pow(block.avgG - rgb.g, 2) +
-              Math.pow(block.avgB - rgb.b, 2)
-            );
-            if (dist < minDist) {
-              minDist = dist;
-              finalColor = color;
+        let finalColor: MardColor;
+        let finalRgb: { r: number; g: number; b: number };
+        
+        if (coloredCells.has(key)) {
+          // Has color - use MARD color
+          let mardColor = mardColorMap.get(key)!;
+          
+          // If not in selected colors, find closest
+          if (!selectedColorCodes.has(mardColor.code)) {
+            const srcColor = cellColors.get(key)!;
+            let minDist = Infinity;
+            for (const color of selectedColors) {
+              const rgb = hexToRgb(color.hex);
+              const dist = Math.sqrt(
+                Math.pow(srcColor.avgR - rgb.r, 2) +
+                Math.pow(srcColor.avgG - rgb.g, 2) +
+                Math.pow(srcColor.avgB - rgb.b, 2)
+              );
+              if (dist < minDist) {
+                minDist = dist;
+                mardColor = color;
+              }
             }
           }
+          
+          finalColor = mardColor;
+          finalRgb = hexToRgb(mardColor.hex);
+        } else {
+          // Transparent inside outline - use white
+          finalColor = whiteMardColor;
+          finalRgb = { r: 255, g: 255, b: 255 };
         }
         
-        // Get RGB values for the final color
-        const finalRgb = hexToRgb(finalColor.hex);
-        
-        // Calculate position on target canvas
-        const x = offsetX + block.gridX * cellSize;
-        const y = offsetY + block.gridY * cellSize;
-        
-        // Fill the block with the final color
+        // Fill the block
         ctx.fillStyle = finalColor.hex;
         ctx.fillRect(x, y, cellSize, cellSize);
         
-        // Track for text drawing
+        // Track
         drawnBlocks.push({
           x, y,
           color: finalColor,
@@ -1866,13 +1926,12 @@ async function generateBeadPatternHD(
           rgbB: finalRgb.b
         });
         
-        // Track color for legend
         if (!colorMap.has(finalColor.code)) {
           colorMap.set(finalColor.code, finalColor);
         }
       }
       
-      // Step 7: Draw MARD color codes on blocks
+      // Step 9: Draw MARD color codes
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
@@ -1886,42 +1945,29 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
       
-      // Step 7.5: Draw red edge lines around subject
-      // Create a set of all colored cell positions for edge detection
-      const coloredCells = new Set<string>();
-      for (const block of blocksInfo) {
-        coloredCells.add(`${block.gridX},${block.gridY}`);
-      }
-      
-      // Check each colored cell for edges
+      // Step 10: Draw red edge lines (only for outline cells)
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
-      for (const block of blocksInfo) {
-        const { gridX, gridY } = block;
+      for (const key of outlineCells) {
+        const [gridX, gridY] = key.split(',').map(Number);
         const x = offsetX + gridX * cellSize;
         const y = offsetY + gridY * cellSize;
         
-        // Check four directions: top, bottom, left, right
-        // Top edge (no colored cell above)
-        if (!coloredCells.has(`${gridX},${gridY - 1}`)) {
+        if (!insideCells.has(`${gridX},${gridY - 1}`)) {
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
-        // Bottom edge (no colored cell below)
-        if (!coloredCells.has(`${gridX},${gridY + 1}`)) {
+        if (!insideCells.has(`${gridX},${gridY + 1}`)) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
-        // Left edge (no colored cell on left)
-        if (!coloredCells.has(`${gridX - 1},${gridY}`)) {
+        if (!insideCells.has(`${gridX - 1},${gridY}`)) {
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
-        // Right edge (no colored cell on right)
-        if (!coloredCells.has(`${gridX + 1},${gridY}`)) {
+        if (!insideCells.has(`${gridX + 1},${gridY}`)) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
       }
       
-      // Draw red edge lines
-      ctx.strokeStyle = '#ef4444';  // Red color
+      ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = Math.max(2, Math.floor(scale * 1));
       ctx.lineCap = 'round';
       
@@ -1932,27 +1978,24 @@ async function generateBeadPatternHD(
         ctx.stroke();
       }
       
-      // Step 8: Draw grid lines
+      // Step 11: Draw grid lines
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
 
       for (let i = 0; i <= gridSize; i++) {
         const pos = marginSize + i * cellSize;
         
-        // Vertical line
         ctx.beginPath();
         ctx.moveTo(pos, marginSize);
         ctx.lineTo(pos, marginSize + gridAreaSize);
         ctx.stroke();
         
-        // Horizontal line
         ctx.beginPath();
         ctx.moveTo(marginSize, pos);
         ctx.lineTo(marginSize + gridAreaSize, pos);
         ctx.stroke();
       }
 
-      // Draw thicker lines every 5 cells
       if (gridSize >= 10) {
         ctx.strokeStyle = '#9ca3af';
         ctx.lineWidth = Math.max(1.5, Math.floor(scale * 0.75));
@@ -1972,39 +2015,25 @@ async function generateBeadPatternHD(
         }
       }
 
-      // Step 9: Draw edge numbers (1,2,3... for both axes)
+      // Step 12: Draw edge numbers
       ctx.fillStyle = '#333333';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const numberFontSize = Math.max(14, Math.min(24, marginSize / 2.5));
       ctx.font = `bold ${numberFontSize}px Arial`;
 
-      // Top edge numbers
       for (let i = 0; i < gridSize; i++) {
-        const x = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), x, marginSize / 2);
+        const xPos = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), xPos, marginSize / 2);
+        ctx.fillText(String(i + 1), xPos, totalSize - marginSize / 2);
       }
 
-      // Bottom edge numbers
       for (let i = 0; i < gridSize; i++) {
-        const x = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), x, totalSize - marginSize / 2);
+        const yPos = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), marginSize / 2, yPos);
+        ctx.fillText(String(i + 1), totalSize - marginSize / 2, yPos);
       }
 
-      // Left edge numbers
-      ctx.textAlign = 'center';
-      for (let i = 0; i < gridSize; i++) {
-        const y = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), marginSize / 2, y);
-      }
-
-      // Right edge numbers
-      for (let i = 0; i < gridSize; i++) {
-        const y = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), totalSize - marginSize / 2, y);
-      }
-
-      // Convert color map to legend array
       const legend = Array.from(colorMap.values()).sort((a, b) => a.code.localeCompare(b.code));
 
       resolve({
