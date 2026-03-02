@@ -43,223 +43,100 @@ const GRID_OPTIONS = [
   { value: 100, label: '100 × 100' },
 ];
 
-// Advanced background removal with improved accuracy
-// Uses edge sampling, color clustering, and async processing to avoid UI blocking
-const removeBackgroundSimple = async (
+// Simple background removal using color-based approach
+// This works well for images with solid/gradient backgrounds
+const removeBackgroundSimple = (
   imageData: ImageData,
-  tolerance: number = 30,
-  onProgress?: (progress: number) => void
-): Promise<ImageData> => {
+  tolerance: number = 30
+): ImageData => {
   const { width, height, data } = imageData;
   const result = new ImageData(width, height);
   const resultData = result.data;
   
-  // Helper to yield to main thread
-  const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
-  
-  // Get pixel color at position
-  const getPixel = (x: number, y: number): [number, number, number] => {
+  // Get background colors from corners
+  const getPixel = (x: number, y: number) => {
     const i = (y * width + x) * 4;
-    return [data[i], data[i + 1], data[i + 2]];
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]];
   };
   
-  // Step 1: Sample background colors from edges (fast)
-  onProgress?.(5);
-  const bgColors: [number, number, number][] = [];
-  const edgeStep = Math.max(1, Math.floor(Math.min(width, height) / 15));
+  const cornerColors = [
+    getPixel(0, 0),
+    getPixel(width - 1, 0),
+    getPixel(0, height - 1),
+    getPixel(width - 1, height - 1),
+  ];
   
-  for (let x = 0; x < width; x += edgeStep) {
-    for (const color of [getPixel(x, 0), getPixel(x, height - 1)]) {
-      let isUnique = true;
-      for (const existing of bgColors) {
-        const dr = Math.abs(color[0] - existing[0]);
-        const dg = Math.abs(color[1] - existing[1]);
-        const db = Math.abs(color[2] - existing[2]);
-        if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
-          isUnique = false;
-          break;
-        }
-      }
-      if (isUnique) bgColors.push(color);
-    }
-  }
-  for (let y = 0; y < height; y += edgeStep) {
-    for (const color of [getPixel(0, y), getPixel(width - 1, y)]) {
-      let isUnique = true;
-      for (const existing of bgColors) {
-        const dr = Math.abs(color[0] - existing[0]);
-        const dg = Math.abs(color[1] - existing[1]);
-        const db = Math.abs(color[2] - existing[2]);
-        if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
-          isUnique = false;
-          break;
-        }
-      }
-      if (isUnique) bgColors.push(color);
-    }
-  }
+  // Average background color
+  const bgColor = [
+    Math.round(cornerColors.reduce((s, c) => s + c[0], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[1], 0) / 4),
+    Math.round(cornerColors.reduce((s, c) => s + c[2], 0) / 4),
+  ];
   
-  // Step 2: Check if pixel is background
+  // Check if a pixel is similar to background
   const isBackground = (r: number, g: number, b: number): boolean => {
-    for (const bg of bgColors) {
-      const dr = Math.abs(r - bg[0]);
-      const dg = Math.abs(g - bg[1]);
-      const db = Math.abs(b - bg[2]);
-      const dist = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
-      if (dist <= tolerance * 1.5) return true;
-    }
-    return false;
+    const dr = Math.abs(r - bgColor[0]);
+    const dg = Math.abs(g - bgColor[1]);
+    const db = Math.abs(b - bgColor[2]);
+    return dr <= tolerance && dg <= tolerance && db <= tolerance;
   };
   
-  // Step 3: Scanline flood fill (more efficient than stack-based)
-  onProgress?.(10);
-  const alphaMask = new Uint8Array(width * height).fill(255);
-  const visited = new Uint8Array(width * height);
+  // Create alpha mask using flood fill from edges
+  const alphaMask = new Uint8Array(width * height).fill(0);
   
-  // Scanline flood fill - much more efficient
-  const scanlineFill = async (startX: number, startY: number) => {
-    if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
-    
-    const stack: [number, number, number, number][] = []; // [y, xLeft, xRight, direction]
-    
-    // Find scanline range at start
-    const idx0 = startY * width + startX;
-    if (visited[idx0] || !isBackground(data[idx0 * 4], data[idx0 * 4 + 1], data[idx0 * 4 + 2])) return;
-    
-    // Find leftmost background pixel on this scanline
-    let left = startX;
-    while (left > 0) {
-      const idx = startY * width + (left - 1);
-      if (visited[idx]) break;
-      if (!isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) break;
-      left--;
-    }
-    
-    // Find rightmost background pixel on this scanline
-    let right = startX;
-    while (right < width - 1) {
-      const idx = startY * width + (right + 1);
-      if (visited[idx]) break;
-      if (!isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) break;
-      right++;
-    }
-    
-    stack.push([startY, left, right, 1]);  // direction 1 = down, -1 = up
-    stack.push([startY, left, right, -1]);
-    
-    let iterations = 0;
-    const maxIterationsPerYield = 50000;
+  // Flood fill from edges to mark background
+  const floodFill = (startX: number, startY: number) => {
+    const stack: [number, number][] = [[startX, startY]];
+    const visited = new Set<string>();
     
     while (stack.length > 0) {
-      iterations++;
-      if (iterations % maxIterationsPerYield === 0) {
-        onProgress?.(10 + Math.min(40, iterations / 100000));
-        await yieldToMain();
-      }
+      const [x, y] = stack.pop()!;
+      const key = `${x},${y}`;
       
-      const [y, xLeft, xRight, dir] = stack.pop()!;
+      if (visited.has(key)) continue;
+      if (x < 0 || x >= width || y < 0 || y >= height) continue;
       
-      // Mark this scanline as background
-      for (let x = xLeft; x <= xRight; x++) {
-        const idx = y * width + x;
-        if (!visited[idx]) {
-          visited[idx] = 1;
-          alphaMask[idx] = 0;
-        }
-      }
+      const i = (y * width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
       
-      // Check scanlines above and below
-      for (const newY of [y + dir, y - dir]) {
-        if (newY < 0 || newY >= height) continue;
-        
-        let newLeft = -1;
-        for (let x = xLeft; x <= xRight; x++) {
-          const idx = newY * width + x;
-          if (!visited[idx] && isBackground(data[idx * 4], data[idx * 4 + 1], data[idx * 4 + 2])) {
-            if (newLeft === -1) newLeft = x;
-          } else if (newLeft !== -1) {
-            // End of run, push to stack
-            stack.push([newY, newLeft, x - 1, dir]);
-            newLeft = -1;
-          }
-        }
-        if (newLeft !== -1) {
-          stack.push([newY, newLeft, xRight, dir]);
-        }
-      }
+      if (!isBackground(r, g, b)) continue;
+      
+      visited.add(key);
+      alphaMask[y * width + x] = 1;
+      
+      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
     }
   };
   
-  // Start flood fill from edges
-  const step = Math.max(1, Math.floor(Math.min(width, height) / 10));
-  for (let x = 0; x < width; x += step) {
-    await scanlineFill(x, 0);
-    await scanlineFill(x, height - 1);
-  }
-  for (let y = 0; y < height; y += step) {
-    await scanlineFill(0, y);
-    await scanlineFill(width - 1, y);
-  }
+  // Start flood fill from all corners
+  floodFill(0, 0);
+  floodFill(width - 1, 0);
+  floodFill(0, height - 1);
+  floodFill(width - 1, height - 1);
   
-  // Step 4: Fill small holes (async)
-  onProgress?.(60);
-  await yieldToMain();
-  
-  const tempMask = new Uint8Array(alphaMask);
-  const holeFillSize = 3;
-  let row = 0;
-  for (let y = holeFillSize; y < height - holeFillSize; y++) {
-    row++;
-    if (row % 100 === 0) {
-      onProgress?.(60 + (row / height) * 15);
-      await yieldToMain();
-    }
-    
-    for (let x = holeFillSize; x < width - holeFillSize; x++) {
-      const idx = y * width + x;
-      if (alphaMask[idx] === 0) {
-        let fgCount = 0;
-        for (let ky = -holeFillSize; ky <= holeFillSize; ky++) {
-          for (let kx = -holeFillSize; kx <= holeFillSize; kx++) {
-            if (alphaMask[(y + ky) * width + (x + kx)] === 255) fgCount++;
-          }
-        }
-        if (fgCount >= 20) tempMask[idx] = 255;
-      }
-    }
-  }
-  
-  // Step 5: Apply mask (fast)
-  onProgress?.(80);
+  // Apply mask
   for (let i = 0; i < width * height; i++) {
     const srcI = i * 4;
     resultData[srcI] = data[srcI];
     resultData[srcI + 1] = data[srcI + 1];
     resultData[srcI + 2] = data[srcI + 2];
-    resultData[srcI + 3] = tempMask[i];
+    resultData[srcI + 3] = alphaMask[i] ? 0 : 255;
   }
   
-  // Step 6: Edge smoothing (async)
-  await yieldToMain();
+  // Edge smoothing: apply slight blur to alpha channel
   const smoothedAlpha = new Uint8Array(width * height);
-  row = 0;
-  
-  for (let y = 2; y < height - 2; y++) {
-    row++;
-    if (row % 100 === 0) {
-      onProgress?.(80 + (row / height) * 15);
-      await yieldToMain();
-    }
-    
-    for (let x = 2; x < width - 2; x++) {
-      // Simple 3x3 box blur for speed
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
       let sum = 0;
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          sum += tempMask[(y + ky) * width + (x + kx)];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          sum += resultData[((y + dy) * width + (x + dx)) * 4 + 3];
         }
       }
-      smoothedAlpha[y * width + x] = Math.round(sum / 9);
+      smoothedAlpha[i] = Math.round(sum / 9);
     }
   }
   
@@ -268,7 +145,6 @@ const removeBackgroundSimple = async (
     resultData[i * 4 + 3] = smoothedAlpha[i];
   }
   
-  onProgress?.(100);
   return result;
 };
 
@@ -329,9 +205,9 @@ export default function Home() {
       setOriginalImage(imageDataUrl);
 
       setStep('removing-bg');
-      setProgress(20);
+      setProgress(30);
 
-      // Use async background removal with progress updates
+      // Use simple color-based background removal
       const result = await new Promise<string>((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
@@ -349,12 +225,12 @@ export default function Home() {
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
             
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            setProgress(50);
             
-            // Pass progress callback for real-time updates
-            const processedData = await removeBackgroundSimple(imageData, bgTolerance, (p) => {
-              setProgress(20 + Math.round(p * 0.6)); // 20-80%
-            });
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const processedData = removeBackgroundSimple(imageData, bgTolerance);
+            
+            setProgress(70);
             
             ctx.putImageData(processedData, 0, 0);
             resolve(canvas.toDataURL('image/png'));
@@ -626,32 +502,6 @@ export default function Home() {
                   </Button>
                 ))}
               </div>
-            </div>
-            
-            {/* Background Removal Tolerance */}
-            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <div className="flex items-center justify-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Wand2 className="w-5 h-5 text-purple-600" />
-                  <span className="font-medium text-slate-700 dark:text-slate-300">抠图精度：</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-500">精细</span>
-                  <input
-                    type="range"
-                    min="10"
-                    max="60"
-                    value={bgTolerance}
-                    onChange={(e) => setBgTolerance(parseInt(e.target.value))}
-                    className="w-32 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700"
-                  />
-                  <span className="text-xs text-slate-500">宽松</span>
-                  <span className="text-sm text-blue-600 font-medium w-8">{bgTolerance}</span>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 text-center mt-2">
-                背景色差异较大时调高数值，主体边缘被误删时调低数值
-              </p>
             </div>
           </CardContent>
         </Card>
@@ -1293,7 +1143,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
 
 interface PixelateResult {
   fullImage: string;      // 完整图片（带白色背景和网格线）
-  subjectImage: string;   // 单独的像素化主体（白色背景填充透明区域）
+  subjectImage: string;   // 单独的像素化主体（透明背景）
   subjectInfo: {
     cellCountX: number;   // 主体宽度（网格数）
     cellCountY: number;   // 主体高度（网格数）
@@ -1349,27 +1199,28 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       const cellCountX = Math.round(alignedWidth / cellSize);
       const cellCountY = Math.round(alignedHeight / cellSize);
 
-      // Step 3: First pass - collect cell data and find subject bounds
-      const cellData: Array<{
-        gridX: number;
-        gridY: number;
-        avgR: number;
-        avgG: number;
-        avgB: number;
-        avgA: number;
-        hasContent: boolean;
-      }> = [];
+      // Step 3: Pixelate ONLY the subject (on transparent canvas)
+      const subjectCanvas = document.createElement('canvas');
+      const subjectCtx = subjectCanvas.getContext('2d');
       
-      let minContentX = cellCountX, maxContentX = -1;
-      let minContentY = cellCountY, maxContentY = -1;
+      if (!subjectCtx) {
+        reject(new Error('无法创建主体画布'));
+        return;
+      }
 
+      subjectCanvas.width = alignedWidth;
+      subjectCanvas.height = alignedHeight;
+
+      // Pixelate each grid cell of the subject
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
+          // Calculate corresponding source region
           const srcX1 = Math.floor(gridX / cellCountX * imgWidth);
           const srcY1 = Math.floor(gridY / cellCountY * imgHeight);
           const srcX2 = Math.floor((gridX + 1) / cellCountX * imgWidth);
           const srcY2 = Math.floor((gridY + 1) / cellCountY * imgHeight);
           
+          // Calculate average color from source region
           let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
           
@@ -1384,62 +1235,27 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
             }
           }
           
-          const avgR = pixelCount > 0 ? Math.round(totalR / pixelCount) : 255;
-          const avgG = pixelCount > 0 ? Math.round(totalG / pixelCount) : 255;
-          const avgB = pixelCount > 0 ? Math.round(totalB / pixelCount) : 255;
-          const avgA = pixelCount > 0 ? Math.round(totalA / pixelCount) : 0;
-          const hasContent = avgA > 10;
-          
-          cellData.push({ gridX, gridY, avgR, avgG, avgB, avgA, hasContent });
-          
-          // Update bounds
-          if (hasContent) {
-            minContentX = Math.min(minContentX, gridX);
-            maxContentX = Math.max(maxContentX, gridX);
-            minContentY = Math.min(minContentY, gridY);
-            maxContentY = Math.max(maxContentY, gridY);
+          if (pixelCount > 0) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
+            
+            // Only draw if pixel has some opacity (is part of subject)
+            if (avgA > 10) {
+              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+              subjectCtx.fillRect(
+                gridX * cellSize,
+                gridY * cellSize,
+                cellSize,
+                cellSize
+              );
+            }
           }
         }
       }
 
-      // Step 4: Create subject canvas - fill ALL cells within subject bounds
-      const subjectCanvas = document.createElement('canvas');
-      const subjectCtx = subjectCanvas.getContext('2d');
-      
-      if (!subjectCtx) {
-        reject(new Error('无法创建主体画布'));
-        return;
-      }
-
-      subjectCanvas.width = alignedWidth;
-      subjectCanvas.height = alignedHeight;
-
-      // Fill subject area with white background first
-      subjectCtx.fillStyle = '#ffffff';
-      subjectCtx.fillRect(0, 0, alignedWidth, alignedHeight);
-
-      // Draw each cell - fill with color or white if transparent
-      for (const cell of cellData) {
-        const x = cell.gridX * cellSize;
-        const y = cell.gridY * cellSize;
-        
-        // Check if cell is within subject bounds
-        const inBoundsX = cell.gridX >= minContentX && cell.gridX <= maxContentX;
-        const inBoundsY = cell.gridY >= minContentY && cell.gridY <= maxContentY;
-        
-        if (cell.hasContent) {
-          // Has color - use actual color
-          subjectCtx.fillStyle = `rgba(${cell.avgR}, ${cell.avgG}, ${cell.avgB}, ${cell.avgA / 255})`;
-          subjectCtx.fillRect(x, y, cellSize, cellSize);
-        } else if (inBoundsX && inBoundsY) {
-          // Within subject bounds but transparent - fill with white
-          subjectCtx.fillStyle = '#ffffff';
-          subjectCtx.fillRect(x, y, cellSize, cellSize);
-        }
-        // Outside bounds - leave as white (already filled)
-      }
-
-      // Step 5: Create final canvas with white background
+      // Step 4: Create final canvas with white background
       const resultCanvas = document.createElement('canvas');
       const resultCtx = resultCanvas.getContext('2d');
       
@@ -1455,10 +1271,10 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       resultCtx.fillStyle = '#ffffff';
       resultCtx.fillRect(0, 0, gridSize, gridSize);
 
-      // Step 6: Place pixelated subject on the grid (centered)
+      // Step 5: Place pixelated subject on the grid (centered)
       resultCtx.drawImage(subjectCanvas, offsetX, offsetY);
 
-      // Step 7: Draw grid lines on top
+      // Step 6: Draw grid lines on top
       resultCtx.strokeStyle = '#d1d5db';
       resultCtx.lineWidth = 1;
 
@@ -1735,8 +1551,8 @@ async function generateBeadPattern(
 }
 
 // Generate high-definition bead pattern for download
-// Input: pixelated subject image (white background with subject filled)
-// Process: read all colors → match MARD colors → place on blank grid with numbers
+// Input: pixelated subject image (transparent background)
+// Process: read subject colors → match MARD colors → place on blank grid
 async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
@@ -1747,7 +1563,7 @@ async function generateBeadPatternHD(
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Step 1: Get source image data
+      // Step 1: Get source image data (pixelated subject with transparent background)
       const srcCanvas = document.createElement('canvas');
       const srcCtx = srcCanvas.getContext('2d');
       if (!srcCtx) {
@@ -1763,17 +1579,19 @@ async function generateBeadPatternHD(
       const srcData = srcImageData.data;
       
       // Calculate cell size in source image
+      // Subject image size is aligned to grid cells, each cell is (800 / gridSize) pixels
       const srcCellSize = 800 / gridSize;
       const srcCellCountX = Math.round(img.width / srcCellSize);
       const srcCellCountY = Math.round(img.height / srcCellSize);
       
-      // Step 2: Read colors from ALL cells (subject is now on white background)
+      // Step 2: Read colors from each cell, skip transparent cells
       const blocksInfo: Array<{
         gridX: number;
         gridY: number;
         avgR: number;
         avgG: number;
         avgB: number;
+        avgA: number;
         nearestColor: MardColor;
       }> = [];
       
@@ -1782,7 +1600,7 @@ async function generateBeadPatternHD(
       for (let cellY = 0; cellY < srcCellCountY; cellY++) {
         for (let cellX = 0; cellX < srcCellCountX; cellX++) {
           // Calculate average color for this cell
-          let totalR = 0, totalG = 0, totalB = 0;
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
           
           const startX = Math.floor(cellX * srcCellSize);
@@ -1796,6 +1614,7 @@ async function generateBeadPatternHD(
               totalR += srcData[idx];
               totalG += srcData[idx + 1];
               totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
               pixelCount++;
             }
           }
@@ -1804,20 +1623,24 @@ async function generateBeadPatternHD(
             const avgR = Math.round(totalR / pixelCount);
             const avgG = Math.round(totalG / pixelCount);
             const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
             
-            // Find nearest MARD color for ALL cells (including white)
-            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
-            
-            blocksInfo.push({
-              gridX: cellX,
-              gridY: cellY,
-              avgR, avgG, avgB,
-              nearestColor
-            });
-            
-            // Count color usage
-            const count = colorUsageCount.get(nearestColor.code) || 0;
-            colorUsageCount.set(nearestColor.code, count + 1);
+            // Only process cells that have visible content (alpha > 10)
+            if (avgA > 10) {
+              // Find nearest MARD color
+              const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+              
+              blocksInfo.push({
+                gridX: cellX,
+                gridY: cellY,
+                avgR, avgG, avgB, avgA,
+                nearestColor
+              });
+              
+              // Count color usage
+              const count = colorUsageCount.get(nearestColor.code) || 0;
+              colorUsageCount.set(nearestColor.code, count + 1);
+            }
           }
         }
       }
