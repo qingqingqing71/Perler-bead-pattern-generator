@@ -253,8 +253,9 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Remove black background (set black pixels to transparent)
-        const cleanedImage = await removeBlackBackground(data.imageUrl);
+        // Remove black/white background (set black/white pixels to transparent)
+        // This ensures only the subject remains with transparent background
+        const cleanedImage = await removeBackgroundColors(data.imageUrl);
         
         setAnimeImage(cleanedImage);
         setUseAnimeImage(true);
@@ -1335,7 +1336,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
   });
 }
 
-async function removeBlackBackground(imageUrl: string): Promise<string> {
+async function removeBackgroundColors(imageUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1356,14 +1357,20 @@ async function removeBlackBackground(imageUrl: string): Promise<string> {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
 
-      // Remove black/near-black pixels (make them transparent)
+      // Remove black/near-black and white/near-white pixels (make them transparent)
+      // This ensures we only keep the subject, with transparent background
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
         
         // Check if pixel is black or near-black (threshold: 30)
-        if (r < 30 && g < 30 && b < 30) {
+        const isBlack = r < 30 && g < 30 && b < 30;
+        
+        // Check if pixel is white or near-white (threshold: 225)
+        const isWhite = r > 225 && g > 225 && b > 225;
+        
+        if (isBlack || isWhite) {
           data[i + 3] = 0; // Set alpha to 0 (transparent)
         }
       }
