@@ -1144,7 +1144,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Create a canvas for the original image
+      // Step 1: Load source image
       const srcCanvas = document.createElement('canvas');
       const srcCtx = srcCanvas.getContext('2d');
       
@@ -1160,58 +1160,45 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       srcCanvas.height = imgHeight;
       srcCtx.drawImage(img, 0, 0, imgWidth, imgHeight);
       
-      // Get source image data
       const srcImageData = srcCtx.getImageData(0, 0, imgWidth, imgHeight);
       const srcData = srcImageData.data;
 
-      // Create result canvas with same size as grid (800x800)
+      // Step 2: Calculate subject size and position on grid
       const gridSize = 800;
       const cellSize = gridSize / gridCount;
       
-      const resultCanvas = document.createElement('canvas');
-      const resultCtx = resultCanvas.getContext('2d');
-      
-      if (!resultCtx) {
-        reject(new Error('无法创建结果画布'));
-        return;
-      }
-
-      resultCanvas.width = gridSize;
-      resultCanvas.height = gridSize;
-
-      // Fill with white background
-      resultCtx.fillStyle = '#ffffff';
-      resultCtx.fillRect(0, 0, gridSize, gridSize);
-
-      // Calculate image size and position, align to grid lines
       // Area = grid size² * 0.9, keep aspect ratio
       const targetArea = gridSize * gridSize * 0.9;
       const originalArea = imgWidth * imgHeight;
       const scaleFactor = Math.sqrt(targetArea / originalArea);
-      let scaledWidth = imgWidth * scaleFactor;
-      let scaledHeight = imgHeight * scaleFactor;
-
+      
       // Align size to grid cells
-      const alignedWidth = Math.round(scaledWidth / cellSize) * cellSize;
-      const alignedHeight = Math.round(scaledHeight / cellSize) * cellSize;
+      const alignedWidth = Math.round(imgWidth * scaleFactor / cellSize) * cellSize;
+      const alignedHeight = Math.round(imgHeight * scaleFactor / cellSize) * cellSize;
       
       // Align position to grid lines (centered)
       const offsetX = Math.round((gridSize - alignedWidth) / 2 / cellSize) * cellSize;
       const offsetY = Math.round((gridSize - alignedHeight) / 2 / cellSize) * cellSize;
 
-      // Calculate pixel size based on grid
-      const actualPixelSize = cellSize;
-
       // Calculate grid cell counts for subject
       const cellCountX = Math.round(alignedWidth / cellSize);
       const cellCountY = Math.round(alignedHeight / cellSize);
 
-      // Pixelate the subject area
+      // Step 3: Pixelate ONLY the subject (on transparent canvas)
+      const subjectCanvas = document.createElement('canvas');
+      const subjectCtx = subjectCanvas.getContext('2d');
+      
+      if (!subjectCtx) {
+        reject(new Error('无法创建主体画布'));
+        return;
+      }
+
+      subjectCanvas.width = alignedWidth;
+      subjectCanvas.height = alignedHeight;
+
+      // Pixelate each grid cell of the subject
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
-          const canvasX = offsetX + gridX * actualPixelSize;
-          const canvasY = offsetY + gridY * actualPixelSize;
-          
           // Calculate corresponding source region
           const srcX1 = Math.floor(gridX / cellCountX * imgWidth);
           const srcY1 = Math.floor(gridY / cellCountY * imgHeight);
@@ -1239,19 +1226,40 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
             const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
             
-            // Draw pixel block
-            resultCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-            resultCtx.fillRect(
-              Math.floor(offsetX + gridX * actualPixelSize),
-              Math.floor(offsetY + gridY * actualPixelSize),
-              Math.ceil(actualPixelSize),
-              Math.ceil(actualPixelSize)
-            );
+            // Only draw if pixel has some opacity (is part of subject)
+            if (avgA > 10) {
+              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+              subjectCtx.fillRect(
+                gridX * cellSize,
+                gridY * cellSize,
+                cellSize,
+                cellSize
+              );
+            }
           }
         }
       }
 
-      // Draw grid lines on top (same style as grid result)
+      // Step 4: Create final canvas with white background
+      const resultCanvas = document.createElement('canvas');
+      const resultCtx = resultCanvas.getContext('2d');
+      
+      if (!resultCtx) {
+        reject(new Error('无法创建结果画布'));
+        return;
+      }
+
+      resultCanvas.width = gridSize;
+      resultCanvas.height = gridSize;
+
+      // Fill with white background
+      resultCtx.fillStyle = '#ffffff';
+      resultCtx.fillRect(0, 0, gridSize, gridSize);
+
+      // Step 5: Place pixelated subject on the grid (centered)
+      resultCtx.drawImage(subjectCanvas, offsetX, offsetY);
+
+      // Step 6: Draw grid lines on top
       resultCtx.strokeStyle = '#d1d5db';
       resultCtx.lineWidth = 1;
 
@@ -1274,8 +1282,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
         resultCtx.strokeStyle = '#9ca3af';
         resultCtx.lineWidth = 2;
         
-        const majorInterval = 5;
-        for (let i = 0; i <= gridCount; i += majorInterval) {
+        for (let i = 0; i <= gridCount; i += 5) {
           const pos = i * cellSize;
           
           resultCtx.beginPath();
