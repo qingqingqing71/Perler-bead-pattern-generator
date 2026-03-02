@@ -19,8 +19,9 @@ export async function POST(request: NextRequest) {
       : `data:image/png;base64,${imageBase64}`;
 
     // Use image-to-image transformation with Q-version cute manga style prompt
+    // Key requirements: keep pose/expression, transparent background, subject only
     const response = await client.generate({
-      prompt: 'Convert this person to Q-version cute manga style, chibi anime character, kawaii illustration, adorable cartoon style, soft pastel colors, clean vector lines, keep the same body proportions and pose and composition and hairstyle, same body size as original, same hairstyle as original,no background, no watermark, no text, no signature, no label',
+      prompt: 'Transform this person into Q-version cute manga chibi style. CRITICAL REQUIREMENTS: 1) Keep exactly the same pose, posture, gesture, body language, facial expression and emotion as the original image 2) Maintain the same hairstyle and hair color 3) Output ONLY the character subject with COMPLETELY TRANSPARENT BACKGROUND - no white background, no solid background, no gradient background 4) The subject must be isolated on transparent/alpha channel background 5) No background elements, no scenery, no environment 6) Clean vector art style with soft pastel colors 7) No watermark, no text, no signature, no border',
       image: imageUrl,
       size: '2K',
     });
