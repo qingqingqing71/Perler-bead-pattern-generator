@@ -64,6 +64,7 @@ export default function Home() {
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null);
+  const [subjectCells, setSubjectCells] = useState<SubjectCell[]>([]);
   const [isPixelating, setIsPixelating] = useState(false);
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
@@ -326,6 +327,7 @@ export default function Home() {
       const result = await pixelateImage(sourceImage, gridSize);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
+      setSubjectCells(result.subjectInfo.cells);  // 保存网格颜色信息
     } catch (err) {
       console.error('Pixelate error:', err);
       setError(err instanceof Error ? err.message : '像素化处理失败');
@@ -343,7 +345,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1, subjectCells);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
     } catch (err) {
@@ -382,7 +384,7 @@ export default function Home() {
 
     try {
       // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3, subjectCells);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -402,7 +404,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, subjectCells]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -411,6 +413,7 @@ export default function Home() {
     setFinalImage(null);
     setPixelatedImage(null);
     setPixelatedSubject(null);
+    setSubjectCells([]);
     setBeadPatternImage(null);
     setBeadPatternLegend([]);
     setUseAnimeImage(false);
@@ -1110,6 +1113,16 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
   });
 }
 
+interface SubjectCell {
+  gridX: number;
+  gridY: number;
+  avgR: number;
+  avgG: number;
+  avgB: number;
+  avgA: number;
+  isSubject: boolean;  // 是否属于主体（有任何不透明内容）
+}
+
 interface PixelateResult {
   fullImage: string;      // 完整图片（带白色背景和网格线）
   subjectImage: string;   // 单独的像素化主体（透明背景）
@@ -1119,6 +1132,7 @@ interface PixelateResult {
     offsetX: number;      // 在800×800画布上的X偏移（像素）
     offsetY: number;      // 在800×800画布上的Y偏移（像素）
     cellSize: number;     // 每个网格单元的像素大小
+    cells: SubjectCell[]; // 所有网格的颜色信息
   };
 }
 
@@ -1180,6 +1194,9 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       subjectCanvas.width = alignedWidth;
       subjectCanvas.height = alignedHeight;
 
+      // Array to store all cell information
+      const cells: SubjectCell[] = [];
+
       // Pixelate each grid cell of the subject
       for (let gridY = 0; gridY < cellCountY; gridY++) {
         for (let gridX = 0; gridX < cellCountX; gridX++) {
@@ -1210,15 +1227,80 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
             const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
             
-            // Only draw if pixel has some opacity (is part of subject)
-            if (avgA > 10) {
-              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
-              subjectCtx.fillRect(
-                gridX * cellSize,
-                gridY * cellSize,
-                cellSize,
-                cellSize
-              );
+            cells.push({
+              gridX, gridY,
+              avgR, avgG, avgB, avgA,
+              isSubject: avgA > 10  // 有任何不透明内容
+            });
+            
+            // Draw all cells within subject bounding box
+            // For transparent cells, we still draw them (they will be filled in bead pattern)
+            subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA > 10 ? avgA / 255 : 0})`;
+            subjectCtx.fillRect(
+              gridX * cellSize,
+              gridY * cellSize,
+              cellSize,
+              cellSize
+            );
+          }
+        }
+      }
+      
+      // Step 3.5: Fill holes in subject - for cells with isSubject=false but surrounded by isSubject=true
+      // This ensures the subject boundary is complete
+      const cellsMap = new Map<string, SubjectCell>();
+      for (const cell of cells) {
+        cellsMap.set(`${cell.gridX},${cell.gridY}`, cell);
+      }
+      
+      // Find bounding box of subject cells
+      let minSubjectX = cellCountX, maxSubjectX = 0;
+      let minSubjectY = cellCountY, maxSubjectY = 0;
+      for (const cell of cells) {
+        if (cell.isSubject) {
+          minSubjectX = Math.min(minSubjectX, cell.gridX);
+          maxSubjectX = Math.max(maxSubjectX, cell.gridX);
+          minSubjectY = Math.min(minSubjectY, cell.gridY);
+          maxSubjectY = Math.max(maxSubjectY, cell.gridY);
+        }
+      }
+      
+      // Mark all cells within subject bounding box as part of subject for bead pattern
+      // For transparent cells inside the bounding box, use nearest non-transparent cell's color
+      const getNearestSubjectColor = (x: number, y: number): { r: number; g: number; b: number } | null => {
+        // Search in expanding circles
+        for (let radius = 1; radius <= Math.max(cellCountX, cellCountY); radius++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+              const nx = x + dx;
+              const ny = y + dy;
+              const neighbor = cellsMap.get(`${nx},${ny}`);
+              if (neighbor && neighbor.isSubject) {
+                return { r: neighbor.avgR, g: neighbor.avgG, b: neighbor.avgB };
+              }
+            }
+          }
+        }
+        return null;
+      };
+      
+      // Update cells inside subject bounding box
+      for (const cell of cells) {
+        // If cell is within subject bounding box but not marked as subject
+        if (cell.gridX >= minSubjectX && cell.gridX <= maxSubjectX &&
+            cell.gridY >= minSubjectY && cell.gridY <= maxSubjectY) {
+          // Mark as part of subject boundary
+          cell.isSubject = true;
+          
+          // If transparent, fill with nearest subject color
+          if (cell.avgA < 10) {
+            const nearestColor = getNearestSubjectColor(cell.gridX, cell.gridY);
+            if (nearestColor) {
+              cell.avgR = nearestColor.r;
+              cell.avgG = nearestColor.g;
+              cell.avgB = nearestColor.b;
+              cell.avgA = 255;  // Make it opaque for bead pattern
             }
           }
         }
@@ -1290,7 +1372,8 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
           cellCountY,
           offsetX,
           offsetY,
-          cellSize
+          cellSize,
+          cells
         }
       });
     };
@@ -1520,95 +1603,118 @@ async function generateBeadPattern(
 }
 
 // Generate high-definition bead pattern for download
-// Input: pixelated subject image (transparent background)
-// Process: read subject colors → match MARD colors → place on blank grid
+// Input: pixelated subject image (transparent background) + pre-computed cells info
+// Process: use cells info to fill all subject cells with MARD colors
 async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
-  scale: number = 3
+  scale: number = 3,
+  subjectCells?: SubjectCell[]
 ): Promise<{ image: string; legend: MardColor[] }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Step 1: Get source image data (pixelated subject with transparent background)
-      const srcCanvas = document.createElement('canvas');
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) {
-        reject(new Error('无法创建源画布'));
-        return;
-      }
-      
-      srcCanvas.width = img.width;
-      srcCanvas.height = img.height;
-      srcCtx.drawImage(img, 0, 0);
-      
-      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
-      const srcData = srcImageData.data;
-      
-      // Calculate cell size in source image
-      // Subject image size is aligned to grid cells, each cell is (800 / gridSize) pixels
+      // Step 1: Calculate cell size in source image
       const srcCellSize = 800 / gridSize;
-      const srcCellCountX = Math.round(img.width / srcCellSize);
-      const srcCellCountY = Math.round(img.height / srcCellSize);
+      const srcCellCountX = subjectCells?.length ? Math.max(...subjectCells.map(c => c.gridX)) + 1 : Math.round(img.width / srcCellSize);
+      const srcCellCountY = subjectCells?.length ? Math.max(...subjectCells.map(c => c.gridY)) + 1 : Math.round(img.height / srcCellSize);
       
-      // Step 2: Read colors from each cell, skip transparent cells
-      const blocksInfo: Array<{
+      // Step 2: Use pre-computed cells if available, otherwise fall back to reading from image
+      let blocksInfo: Array<{
         gridX: number;
         gridY: number;
         avgR: number;
         avgG: number;
         avgB: number;
         avgA: number;
+        isSubject: boolean;
         nearestColor: MardColor;
       }> = [];
       
       const colorUsageCount = new Map<string, number>();
       
-      for (let cellY = 0; cellY < srcCellCountY; cellY++) {
-        for (let cellX = 0; cellX < srcCellCountX; cellX++) {
-          // Calculate average color for this cell
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
+      if (subjectCells && subjectCells.length > 0) {
+        // Use pre-computed cells info - this includes all cells within subject boundary
+        for (const cell of subjectCells) {
+          // Find nearest MARD color
+          const nearestColor = findClosestMardColor(cell.avgR, cell.avgG, cell.avgB);
           
-          const startX = Math.floor(cellX * srcCellSize);
-          const startY = Math.floor(cellY * srcCellSize);
-          const endX = Math.floor((cellX + 1) * srcCellSize);
-          const endY = Math.floor((cellY + 1) * srcCellSize);
+          blocksInfo.push({
+            gridX: cell.gridX,
+            gridY: cell.gridY,
+            avgR: cell.avgR,
+            avgG: cell.avgG,
+            avgB: cell.avgB,
+            avgA: cell.avgA,
+            isSubject: cell.isSubject,
+            nearestColor
+          });
           
-          for (let y = startY; y < endY && y < img.height; y++) {
-            for (let x = startX; x < endX && x < img.width; x++) {
-              const idx = (y * img.width + x) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              totalA += srcData[idx + 3];
-              pixelCount++;
-            }
+          // Count color usage (only for subject cells)
+          if (cell.isSubject) {
+            const count = colorUsageCount.get(nearestColor.code) || 0;
+            colorUsageCount.set(nearestColor.code, count + 1);
           }
-          
-          if (pixelCount > 0) {
-            const avgR = Math.round(totalR / pixelCount);
-            const avgG = Math.round(totalG / pixelCount);
-            const avgB = Math.round(totalB / pixelCount);
-            const avgA = Math.round(totalA / pixelCount);
+        }
+      } else {
+        // Fallback: read from image
+        const srcCanvas = document.createElement('canvas');
+        const srcCtx = srcCanvas.getContext('2d');
+        if (!srcCtx) {
+          reject(new Error('无法创建源画布'));
+          return;
+        }
+        
+        srcCanvas.width = img.width;
+        srcCanvas.height = img.height;
+        srcCtx.drawImage(img, 0, 0);
+        
+        const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
+        const srcData = srcImageData.data;
+        
+        for (let cellY = 0; cellY < srcCellCountY; cellY++) {
+          for (let cellX = 0; cellX < srcCellCountX; cellX++) {
+            let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+            let pixelCount = 0;
             
-            // Only process cells that have visible content (alpha > 10)
-            if (avgA > 10) {
-              // Find nearest MARD color
-              const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+            const startX = Math.floor(cellX * srcCellSize);
+            const startY = Math.floor(cellY * srcCellSize);
+            const endX = Math.floor((cellX + 1) * srcCellSize);
+            const endY = Math.floor((cellY + 1) * srcCellSize);
+            
+            for (let y = startY; y < endY && y < img.height; y++) {
+              for (let x = startX; x < endX && x < img.width; x++) {
+                const idx = (y * img.width + x) * 4;
+                totalR += srcData[idx];
+                totalG += srcData[idx + 1];
+                totalB += srcData[idx + 2];
+                totalA += srcData[idx + 3];
+                pixelCount++;
+              }
+            }
+            
+            if (pixelCount > 0) {
+              const avgR = Math.round(totalR / pixelCount);
+              const avgG = Math.round(totalG / pixelCount);
+              const avgB = Math.round(totalB / pixelCount);
+              const avgA = Math.round(totalA / pixelCount);
               
-              blocksInfo.push({
-                gridX: cellX,
-                gridY: cellY,
-                avgR, avgG, avgB, avgA,
-                nearestColor
-              });
-              
-              // Count color usage
-              const count = colorUsageCount.get(nearestColor.code) || 0;
-              colorUsageCount.set(nearestColor.code, count + 1);
+              if (avgA > 10) {
+                const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+                
+                blocksInfo.push({
+                  gridX: cellX,
+                  gridY: cellY,
+                  avgR, avgG, avgB, avgA,
+                  isSubject: true,
+                  nearestColor
+                });
+                
+                const count = colorUsageCount.get(nearestColor.code) || 0;
+                colorUsageCount.set(nearestColor.code, count + 1);
+              }
             }
           }
         }
@@ -1657,11 +1763,8 @@ async function generateBeadPatternHD(
       ctx.fillRect(0, 0, totalSize, totalSize);
       
       // Step 5: Calculate subject position on target canvas
-      // Subject area = 0.9 of grid, centered
-      const subjectCellCountX = srcCellCountX;
-      const subjectCellCountY = srcCellCountY;
-      const offsetX = marginSize + Math.floor((gridSize - subjectCellCountX) / 2) * cellSize;
-      const offsetY = marginSize + Math.floor((gridSize - subjectCellCountY) / 2) * cellSize;
+      const offsetX = marginSize + Math.floor((gridSize - srcCellCountX) / 2) * cellSize;
+      const offsetY = marginSize + Math.floor((gridSize - srcCellCountY) / 2) * cellSize;
       
       // Helper function to parse hex to RGB
       const hexToRgb = (hex: string) => {
@@ -1688,6 +1791,9 @@ async function generateBeadPatternHD(
       }> = [];
       
       for (const block of blocksInfo) {
+        // Only process subject cells
+        if (!block.isSubject) continue;
+        
         let finalColor = block.nearestColor;
         
         // If color not in selected colors, find closest from selected
