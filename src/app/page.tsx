@@ -1562,8 +1562,8 @@ async function generateBeadPatternHD(
       const srcData = srcImageData.data;
 
       // Calculate subject size (90% of grid) aligned to grid lines
-      // Area ratio 0.9 means side ratio sqrt(0.9) ≈ 0.949
-      const maxSubjectSize = gridAreaSize * Math.sqrt(0.9);
+      // Subject's max dimension (width or height, whichever is larger) is 0.9 of grid size
+      const maxSubjectSize = gridAreaSize * 0.9;
       let scaledWidth = img.width;
       let scaledHeight = img.height;
       
