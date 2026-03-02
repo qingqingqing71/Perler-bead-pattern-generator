@@ -1056,22 +1056,12 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
 
-      // Step 2: Calculate image size (max dimension = grid size * 0.9)
-      const maxImageSize = gridSize * 0.9;
-      let imgWidth = img.width;
-      let imgHeight = img.height;
-      
-      if (imgWidth > imgHeight) {
-        if (imgWidth > maxImageSize) {
-          imgHeight = (imgHeight / imgWidth) * maxImageSize;
-          imgWidth = maxImageSize;
-        }
-      } else {
-        if (imgHeight > maxImageSize) {
-          imgWidth = (imgWidth / imgHeight) * maxImageSize;
-          imgHeight = maxImageSize;
-        }
-      }
+      // Step 2: Calculate image size (area = grid size² * 0.9, keep aspect ratio)
+      const targetArea = gridSize * gridSize * 0.9;
+      const originalArea = img.width * img.height;
+      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      let imgWidth = img.width * scaleFactor;
+      let imgHeight = img.height * scaleFactor;
 
       // Center the image
       const x = (width - imgWidth) / 2;
@@ -1173,22 +1163,12 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<strin
       resultCtx.fillRect(0, 0, gridSize, gridSize);
 
       // Calculate image size and position, align to grid lines
-      // Max dimension = grid size * 0.9
-      const maxImageSize = gridSize * 0.9;
-      let scaledWidth = imgWidth;
-      let scaledHeight = imgHeight;
-      
-      if (scaledWidth > scaledHeight) {
-        if (scaledWidth > maxImageSize) {
-          scaledHeight = (scaledHeight / scaledWidth) * maxImageSize;
-          scaledWidth = maxImageSize;
-        }
-      } else {
-        if (scaledHeight > maxImageSize) {
-          scaledWidth = (scaledWidth / scaledHeight) * maxImageSize;
-          scaledHeight = maxImageSize;
-        }
-      }
+      // Area = grid size² * 0.9, keep aspect ratio
+      const targetArea = gridSize * gridSize * 0.9;
+      const originalArea = imgWidth * imgHeight;
+      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      let scaledWidth = imgWidth * scaleFactor;
+      let scaledHeight = imgHeight * scaleFactor;
 
       // Align size to grid cells
       const alignedWidth = Math.round(scaledWidth / cellSize) * cellSize;
@@ -1562,22 +1542,12 @@ async function generateBeadPatternHD(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
 
-      // Calculate subject size: max dimension = grid area size * 0.9
-      const maxSubjectSize = gridAreaSize * 0.9;
-      let scaledWidth = img.width;
-      let scaledHeight = img.height;
-      
-      if (scaledWidth > scaledHeight) {
-        if (scaledWidth > maxSubjectSize) {
-          scaledHeight = (scaledHeight / scaledWidth) * maxSubjectSize;
-          scaledWidth = maxSubjectSize;
-        }
-      } else {
-        if (scaledHeight > maxSubjectSize) {
-          scaledWidth = (scaledWidth / scaledHeight) * maxSubjectSize;
-          scaledHeight = maxSubjectSize;
-        }
-      }
+      // Calculate subject size: area = grid area² * 0.9, keep aspect ratio
+      const targetArea = gridAreaSize * gridAreaSize * 0.9;
+      const originalArea = img.width * img.height;
+      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      let scaledWidth = img.width * scaleFactor;
+      let scaledHeight = img.height * scaleFactor;
 
       // Align size to grid cells
       const alignedWidth = Math.round(scaledWidth / cellSize) * cellSize;
