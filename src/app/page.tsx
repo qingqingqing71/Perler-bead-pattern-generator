@@ -1606,52 +1606,58 @@ async function generateBeadPatternHD(
           // Calculate average color from source region
           let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
           let pixelCount = 0;
-          let nonTransparentPixels = 0;
+          let nonTransparentPixelCount = 0; // Only count pixels with enough alpha
 
           for (let sy = srcY1; sy < srcY2; sy++) {
             for (let sx = srcX1; sx < srcX2; sx++) {
               const idx = (sy * img.width + sx) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              totalA += srcData[idx + 3];
+              const alpha = srcData[idx + 3];
               pixelCount++;
-              if (srcData[idx + 3] > 0) {
-                nonTransparentPixels++;
+              
+              // Only count pixels with sufficient alpha (non-transparent)
+              // This prevents black (0,0,0) from transparent pixels affecting the color
+              if (alpha > 128) {
+                totalR += srcData[idx];
+                totalG += srcData[idx + 1];
+                totalB += srcData[idx + 2];
+                totalA += alpha;
+                nonTransparentPixelCount++;
               }
             }
           }
 
-          // Process blocks that have any pixel (including transparent ones within subject)
-          if (pixelCount > 0) {
-            const avgR = Math.round(totalR / pixelCount);
-            const avgG = Math.round(totalG / pixelCount);
-            const avgB = Math.round(totalB / pixelCount);
-            const avgA = totalA / pixelCount;
-
-            // Determine color - for mostly transparent blocks, will need to fill later
-            const effectiveR = avgA > 10 ? avgR : 255;
-            const effectiveG = avgA > 10 ? avgG : 255;
-            const effectiveB = avgA > 10 ? avgB : 255;
+          // Process blocks that have non-transparent pixels
+          if (nonTransparentPixelCount > 0) {
+            const avgR = Math.round(totalR / nonTransparentPixelCount);
+            const avgG = Math.round(totalG / nonTransparentPixelCount);
+            const avgB = Math.round(totalB / nonTransparentPixelCount);
+            const avgA = totalA / nonTransparentPixelCount;
 
             // Find nearest MARD color
-            const nearestColor = findClosestMardColor(effectiveR, effectiveG, effectiveB);
+            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
             
             const block = { 
               gridX, gridY, 
-              avgR: effectiveR, avgG: effectiveG, avgB: effectiveB, avgA,
+              avgR, avgG, avgB, avgA,
               nearestColor, 
-              isTransparent: avgA < 10 
+              isTransparent: false 
             };
             
             rawBlocks.push(block);
             blockMap.set(`${gridX},${gridY}`, block);
             
-            // Count usage (only non-transparent blocks)
-            if (avgA >= 10) {
-              const count = colorUsageCount.get(nearestColor.code) || 0;
-              colorUsageCount.set(nearestColor.code, count + 1);
-            }
+            const count = colorUsageCount.get(nearestColor.code) || 0;
+            colorUsageCount.set(nearestColor.code, count + 1);
+          } else if (pixelCount > 0) {
+            // This block is fully transparent - will be filled by flood fill later
+            const block = { 
+              gridX, gridY, 
+              avgR: 255, avgG: 255, avgB: 255, avgA: 0,
+              nearestColor: findClosestMardColor(255, 255, 255), 
+              isTransparent: true 
+            };
+            rawBlocks.push(block);
+            blockMap.set(`${gridX},${gridY}`, block);
           }
         }
       }
