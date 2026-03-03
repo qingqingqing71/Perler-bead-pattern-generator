@@ -252,15 +252,17 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Remove black/white background (set black/white pixels to transparent)
-        // This ensures only the subject remains with transparent background
-        const cleanedImage = await removeBackgroundColors(data.imageUrl);
+        // 直接使用动漫风格化主体，不做 removeBackgroundColors 后处理
+        // API 输入是透明背景的抠图主体，输出也是透明背景的动漫风格主体
         
-        setAnimeImage(cleanedImage);
+        // 将外部图片 URL 转换为 data URL
+        const animeDataUrl = await fetchImageAsDataUrl(data.imageUrl);
+        
+        setAnimeImage(animeDataUrl);
         setUseAnimeImage(true);
         
-        // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(cleanedImage, gridSize);
+        // 直接将动漫风格化主体放置在透明网格纸上
+        const composedImage = await composeWithGrid(animeDataUrl, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
@@ -956,6 +958,18 @@ function readFileAsDataURL(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
+
+// Fetch external image URL and convert to data URL
+async function fetchImageAsDataUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
 }
 
