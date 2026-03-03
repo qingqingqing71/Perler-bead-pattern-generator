@@ -247,12 +247,8 @@ export default function Home() {
     setError(null);
 
     try {
-      // Step 1: Crop image to subject bounding box (remove transparent borders)
-      // This ensures only the subject is sent to the anime transformation API
-      const croppedImage = await cropToSubject(removedBgImage);
-      
       // Extract base64 data from data URL
-      const base64Data = croppedImage.split(',')[1] || croppedImage;
+      const base64Data = removedBgImage.split(',')[1] || removedBgImage;
 
       const response = await fetch('/api/transform-anime', {
         method: 'POST',
@@ -263,9 +259,9 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Apply original cutout's alpha mask to preserve white parts inside subject
-        // This ensures white clothes/hair remain white, not turned into transparent
-        const cleanedImage = await applyOriginalAlphaMask(data.imageUrl, removedBgImage);
+        // Remove black/white background (set black/white pixels to transparent)
+        // This ensures only the subject remains with transparent background
+        const cleanedImage = await removeBackgroundColors(data.imageUrl);
         
         setAnimeImage(cleanedImage);
         setUseAnimeImage(true);
@@ -994,92 +990,6 @@ function readFileAsDataURL(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
-  });
-}
-
-// Crop image to subject bounding box (remove transparent borders)
-async function cropToSubject(imageUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        reject(new Error('无法创建画布'));
-        return;
-      }
-      
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      const width = canvas.width;
-      const height = canvas.height;
-      
-      // Find bounding box of non-transparent pixels
-      let minX = width, maxX = 0, minY = height, maxY = 0;
-      let hasContent = false;
-      
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const idx = (y * width + x) * 4;
-          if (data[idx + 3] > 10) { // Alpha > 10 means visible pixel
-            hasContent = true;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          }
-        }
-      }
-      
-      if (!hasContent) {
-        // No content found, return original
-        resolve(imageUrl);
-        return;
-      }
-      
-      // Add small padding (5% of size)
-      const paddingX = Math.max(10, Math.round((maxX - minX) * 0.05));
-      const paddingY = Math.max(10, Math.round((maxY - minY) * 0.05));
-      
-      minX = Math.max(0, minX - paddingX);
-      maxX = Math.min(width - 1, maxX + paddingX);
-      minY = Math.max(0, minY - paddingY);
-      maxY = Math.min(height - 1, maxY + paddingY);
-      
-      const croppedWidth = maxX - minX + 1;
-      const croppedHeight = maxY - minY + 1;
-      
-      // Create cropped canvas
-      const croppedCanvas = document.createElement('canvas');
-      const croppedCtx = croppedCanvas.getContext('2d');
-      
-      if (!croppedCtx) {
-        resolve(imageUrl);
-        return;
-      }
-      
-      croppedCanvas.width = croppedWidth;
-      croppedCanvas.height = croppedHeight;
-      
-      // Draw cropped region
-      croppedCtx.drawImage(
-        canvas,
-        minX, minY, croppedWidth, croppedHeight,
-        0, 0, croppedWidth, croppedHeight
-      );
-      
-      resolve(croppedCanvas.toDataURL('image/png'));
-    };
-    
-    img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = imageUrl;
   });
 }
 
@@ -1957,96 +1867,7 @@ async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
   });
 }
 
-// Apply original cutout's alpha mask to anime result
-// This preserves white parts inside the subject (like white clothes)
-async function applyOriginalAlphaMask(
-  animeImageUrl: string,
-  originalCutoutUrl: string
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Load both images
-    const animeImg = new Image();
-    const originalImg = new Image();
-    animeImg.crossOrigin = 'anonymous';
-    originalImg.crossOrigin = 'anonymous';
-    
-    let animeLoaded = false;
-    let originalLoaded = false;
-    
-    const tryProcess = () => {
-      if (!animeLoaded || !originalLoaded) return;
-      
-      // Use original cutout dimensions
-      const width = originalImg.width;
-      const height = originalImg.height;
-      
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        reject(new Error('无法创建画布'));
-        return;
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      // Draw anime image (scaled to fit if needed)
-      ctx.drawImage(animeImg, 0, 0, width, height);
-      
-      const animeData = ctx.getImageData(0, 0, width, height);
-      
-      // Create temp canvas for original
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d');
-      if (!tempCtx) {
-        reject(new Error('无法创建临时画布'));
-        return;
-      }
-      tempCanvas.width = width;
-      tempCanvas.height = height;
-      tempCtx.drawImage(originalImg, 0, 0);
-      const originalData = tempCtx.getImageData(0, 0, width, height);
-      
-      // Apply original alpha mask to anime result
-      // This ensures only pixels that were part of the original subject remain visible
-      // White parts inside the subject are preserved (they have alpha > 0 in original)
-      for (let i = 0; i < width * height; i++) {
-        const originalAlpha = originalData.data[i * 4 + 3];
-        
-        // If original pixel was transparent, make anime pixel transparent too
-        if (originalAlpha < 10) {
-          animeData.data[i * 4 + 3] = 0;
-        } else {
-          // Keep anime pixel's alpha (preserve white and all other colors)
-          // But ensure it's at least as visible as original
-          animeData.data[i * 4 + 3] = Math.max(animeData.data[i * 4 + 3], originalAlpha);
-        }
-      }
-      
-      ctx.putImageData(animeData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
-    };
-    
-    animeImg.onload = () => {
-      animeLoaded = true;
-      tryProcess();
-    };
-    
-    originalImg.onload = () => {
-      originalLoaded = true;
-      tryProcess();
-    };
-    
-    animeImg.onerror = () => reject(new Error('无法加载动漫图像'));
-    originalImg.onerror = () => reject(new Error('无法加载原始抠图'));
-    
-    animeImg.src = animeImageUrl;
-    originalImg.src = originalCutoutUrl;
-  });
-}
-
-// Legacy function - remove black/white background from edges only
+// Remove black/white background from edges only (preserve black accessories like glasses)
 async function removeBackgroundColors(imageUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
