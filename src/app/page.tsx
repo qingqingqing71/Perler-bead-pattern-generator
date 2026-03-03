@@ -1736,8 +1736,9 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       resultCtx.fillStyle = '#ffffff';
       resultCtx.fillRect(0, 0, gridSize, gridSize);
 
-      // Step 5: Place pixelated subject on the grid (centered)
-      resultCtx.drawImage(subjectCanvas, offsetX, offsetY);
+      // Step 5: Place pixelated subject on the grid (already centered in subjectCanvas)
+      // subjectCanvas is 800x800 with subject centered, so draw at (0, 0)
+      resultCtx.drawImage(subjectCanvas, 0, 0);
 
       // Step 6: Draw grid lines on top
       resultCtx.strokeStyle = '#d1d5db';
@@ -1779,17 +1780,37 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
 
       // Step 7: Draw red edge lines ONLY on outer boundary (not internal edges)
       // Use flood fill from outside to find cells that touch the outside
+      // Now we need to check the entire 800x800 canvas, not just the subject area
+      
+      // First, rebuild coloredCells with absolute grid coordinates (0 to gridCount-1)
+      const absColoredCells = new Set<string>();
+      const subjImageData = subjectCtx.getImageData(0, 0, gridSize, gridSize);
+      const subjData = subjImageData.data;
+      
+      for (let absGridY = 0; absGridY < gridCount; absGridY++) {
+        for (let absGridX = 0; absGridX < gridCount; absGridX++) {
+          const centerX = Math.floor((absGridX + 0.5) * cellSize);
+          const centerY = Math.floor((absGridY + 0.5) * cellSize);
+          const idx = (centerY * gridSize + centerX) * 4;
+          
+          if (subjData[idx + 3] > 10) {
+            absColoredCells.add(`${absGridX},${absGridY}`);
+          }
+        }
+      }
+      
+      // Flood fill from outside
       const outsideCells = new Set<string>();
       const floodStack: string[] = [];
       
-      // Start from all edge cells of the subject area
-      for (let x = 0; x < cellCountX; x++) {
-        if (!coloredCells.has(`${x},0`)) floodStack.push(`${x},0`);
-        if (!coloredCells.has(`${x},${cellCountY - 1}`)) floodStack.push(`${x},${cellCountY - 1}`);
+      // Start from all edge cells of the entire grid
+      for (let x = 0; x < gridCount; x++) {
+        if (!absColoredCells.has(`${x},0`)) floodStack.push(`${x},0`);
+        if (!absColoredCells.has(`${x},${gridCount - 1}`)) floodStack.push(`${x},${gridCount - 1}`);
       }
-      for (let y = 0; y < cellCountY; y++) {
-        if (!coloredCells.has(`0,${y}`)) floodStack.push(`0,${y}`);
-        if (!coloredCells.has(`${cellCountX - 1},${y}`)) floodStack.push(`${cellCountX - 1},${y}`);
+      for (let y = 0; y < gridCount; y++) {
+        if (!absColoredCells.has(`0,${y}`)) floodStack.push(`0,${y}`);
+        if (!absColoredCells.has(`${gridCount - 1},${y}`)) floodStack.push(`${gridCount - 1},${y}`);
       }
       
       // Flood fill to find all cells reachable from outside
@@ -1800,24 +1821,24 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
         const [cx, cy] = key.split(',').map(Number);
         
         // Stop at colored cells (these are the boundary)
-        if (coloredCells.has(key)) continue;
+        if (absColoredCells.has(key)) continue;
         
         outsideCells.add(key);
         
         // Add neighbors
         if (cx > 0) floodStack.push(`${cx - 1},${cy}`);
-        if (cx < cellCountX - 1) floodStack.push(`${cx + 1},${cy}`);
+        if (cx < gridCount - 1) floodStack.push(`${cx + 1},${cy}`);
         if (cy > 0) floodStack.push(`${cx},${cy - 1}`);
-        if (cy < cellCountY - 1) floodStack.push(`${cx},${cy + 1}`);
+        if (cy < gridCount - 1) floodStack.push(`${cx},${cy + 1}`);
       }
       
       // Only draw edges where colored cells touch outside cells
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
-      for (const key of coloredCells) {
+      for (const key of absColoredCells) {
         const [gridX, gridY] = key.split(',').map(Number);
-        const x = offsetX + gridX * cellSize;
-        const y = offsetY + gridY * cellSize;
+        const x = gridX * cellSize;
+        const y = gridY * cellSize;
         
         // Only draw edge if neighbor is OUTSIDE (not just non-colored)
         // Top edge
@@ -1825,7 +1846,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
         // Bottom edge
-        if (outsideCells.has(`${gridX},${gridY + 1}`) || gridY === cellCountY - 1) {
+        if (outsideCells.has(`${gridX},${gridY + 1}`) || gridY === gridCount - 1) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
         // Left edge
@@ -1833,7 +1854,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
         // Right edge
-        if (outsideCells.has(`${gridX + 1},${gridY}`) || gridX === cellCountX - 1) {
+        if (outsideCells.has(`${gridX + 1},${gridY}`) || gridX === gridCount - 1) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
       }
