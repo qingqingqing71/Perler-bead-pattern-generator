@@ -48,6 +48,7 @@ export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
   const [animeImage, setAnimeImage] = useState<string | null>(null);
+  const [animeWithEdge, setAnimeWithEdge] = useState<string | null>(null); // 动漫图像带红色边缘线
   const [finalImage, setFinalImage] = useState<string | null>(null);
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
@@ -121,6 +122,7 @@ export default function Home() {
         setOriginalImage(null);
         setRemovedBgImage(null);
         setAnimeImage(null);
+        setAnimeWithEdge(null);
         setFinalImage(null);
         setUseAnimeImage(false);
         setProgress(0);
@@ -142,6 +144,7 @@ export default function Home() {
     setFinalImage(null);
     setRemovedBgImage(null);
     setAnimeImage(null);
+    setAnimeWithEdge(null);
     setUseAnimeImage(false);
 
     try {
@@ -258,6 +261,10 @@ export default function Home() {
         
         setAnimeImage(cleanedImage);
         setUseAnimeImage(true);
+        
+        // Generate preview with red edge outline
+        const withEdge = await drawAnimeWithEdge(cleanedImage);
+        setAnimeWithEdge(withEdge);
         
         // Regenerate grid with anime image
         const composedImage = await composeWithGrid(cleanedImage, gridSize);
@@ -431,6 +438,7 @@ export default function Home() {
     setOriginalImage(null);
     setRemovedBgImage(null);
     setAnimeImage(null);
+    setAnimeWithEdge(null);
     setFinalImage(null);
     setPixelatedImage(null);
     setPixelatedSubject(null);
@@ -809,7 +817,13 @@ export default function Home() {
                   backgroundColor: '#fff',
                 } : {}}
               >
-                {animeImage ? (
+                {animeWithEdge ? (
+                  <img
+                    src={animeWithEdge}
+                    alt="动漫风格抠图结果（带边缘线）"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : animeImage ? (
                   <img
                     src={animeImage}
                     alt="动漫风格抠图结果"
@@ -1704,6 +1718,161 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       });
     };
 
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+// Draw anime image with red edge outline on transparent background
+async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Draw the image
+      ctx.drawImage(img, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Detect subject pixels (alpha > 10)
+      const subjectMask = new Uint8Array(width * height).fill(0);
+      for (let i = 0; i < width * height; i++) {
+        if (data[i * 4 + 3] > 10) {
+          subjectMask[i] = 1;
+        }
+      }
+      
+      // Flood fill from edges to find external area
+      const externalArea = new Uint8Array(width * height).fill(0);
+      const stack: [number, number][] = [];
+      
+      // Add all edge pixels to stack
+      for (let x = 0; x < width; x++) {
+        if (subjectMask[x] === 0) stack.push([x, 0]);
+        if (subjectMask[(height - 1) * width + x] === 0) stack.push([x, height - 1]);
+      }
+      for (let y = 0; y < height; y++) {
+        if (subjectMask[y * width] === 0) stack.push([0, y]);
+        if (subjectMask[y * width + width - 1] === 0) stack.push([width - 1, y]);
+      }
+      
+      // Flood fill
+      while (stack.length > 0) {
+        const [x, y] = stack.pop()!;
+        const idx = y * width + x;
+        
+        if (x < 0 || x >= width || y < 0 || y >= height) continue;
+        if (externalArea[idx]) continue;
+        if (subjectMask[idx]) continue; // Stop at subject pixels
+        
+        externalArea[idx] = 1;
+        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+      }
+      
+      // Find outer edge pixels (subject pixels adjacent to external area)
+      const edgePixels = new Uint8Array(width * height).fill(0);
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const idx = y * width + x;
+          if (!subjectMask[idx]) continue;
+          
+          // Check if adjacent to external area
+          const neighbors = [
+            (y - 1) * width + x,
+            (y + 1) * width + x,
+            y * width + x - 1,
+            y * width + x + 1
+          ];
+          
+          for (const nIdx of neighbors) {
+            if (externalArea[nIdx]) {
+              edgePixels[idx] = 1;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Draw red edge outline
+      ctx.putImageData(imageData, 0, 0); // Restore original image
+      ctx.strokeStyle = '#ef4444'; // Red color
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      // Find connected edge segments and draw
+      const visited = new Set<number>();
+      
+      for (let i = 0; i < width * height; i++) {
+        if (!edgePixels[i] || visited.has(i)) continue;
+        
+        // Find connected component using BFS
+        const component: number[] = [];
+        const queue = [i];
+        
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (visited.has(current)) continue;
+          if (!edgePixels[current]) continue;
+          
+          visited.add(current);
+          component.push(current);
+          
+          const x = current % width;
+          const y = Math.floor(current / width);
+          
+          // Check 8-connected neighbors
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                const nIdx = ny * width + nx;
+                if (edgePixels[nIdx] && !visited.has(nIdx)) {
+                  queue.push(nIdx);
+                }
+              }
+            }
+          }
+        }
+        
+        // Draw this component
+        if (component.length > 0) {
+          // Sort by position to create a smooth path
+          component.sort((a, b) => {
+            const ax = a % width, ay = Math.floor(a / width);
+            const bx = b % width, by = Math.floor(b / width);
+            return ay - by || ax - bx;
+          });
+          
+          // Draw dots for each edge pixel
+          component.forEach(idx => {
+            const x = idx % width;
+            const y = Math.floor(idx / width);
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(x - 1, y - 1, 3, 3);
+          });
+        }
+      }
+      
+      resolve(canvas.toDataURL('image/png'));
+    };
+    
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = imageUrl;
   });
