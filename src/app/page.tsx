@@ -1050,16 +1050,19 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       canvas.width = width;
       canvas.height = height;
 
-      // Step 1: Draw white background
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
+      // No white background - keep transparent
+      // 主体会直接放在透明画布上
 
-      // Step 2: Calculate image size (area = grid size² * 0.9, keep aspect ratio)
-      const targetArea = gridSize * gridSize * 0.9;
-      const originalArea = img.width * img.height;
-      const scaleFactor = Math.sqrt(targetArea / originalArea);
-      let imgWidth = img.width * scaleFactor;
-      let imgHeight = img.height * scaleFactor;
+      // Calculate image size (max dimension = gridCount * 0.9 cells)
+      const maxCellCount = gridCount * 0.9;
+      const maxImageSize = maxCellCount * cellSize;
+      let imgWidth = img.width;
+      let imgHeight = img.height;
+      
+      // Scale to fit within max size while maintaining aspect ratio
+      const scale = Math.min(maxImageSize / imgWidth, maxImageSize / imgHeight);
+      imgWidth = imgWidth * scale;
+      imgHeight = imgHeight * scale;
 
       // Align to grid cells
       const alignedImgWidth = Math.round(imgWidth / cellSize) * cellSize;
@@ -1069,7 +1072,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       const offsetX = Math.round((width - alignedImgWidth) / 2 / cellSize) * cellSize;
       const offsetY = Math.round((height - alignedImgHeight) / 2 / cellSize) * cellSize;
       
-      // Draw the image
+      // Draw the image (transparent background)
       ctx.drawImage(img, offsetX, offsetY, alignedImgWidth, alignedImgHeight);
       
       // Get image data for edge detection
@@ -1094,7 +1097,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         }
       }
 
-      // Step 3: Draw grid lines ON TOP
+      // Draw grid lines ON TOP of the subject
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
@@ -1132,7 +1135,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         }
       }
 
-      // Step 4: Draw red edge lines around subject
+      // Draw red edge lines around subject
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of coloredCells) {
