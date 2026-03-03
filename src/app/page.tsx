@@ -2096,6 +2096,74 @@ async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
         }
       }
       
+      // Remove isolated points (small disconnected regions)
+      const removeIsolatedPixels = (mask: Uint8Array, w: number, h: number, minSize: number = 100): Uint8Array => {
+        const result = new Uint8Array(mask.length);
+        const visited = new Uint8Array(mask.length);
+        
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const idx = y * w + x;
+            if (mask[idx] === 0 || visited[idx]) continue;
+            
+            // BFS to find connected component
+            const component: number[] = [];
+            const queue: number[] = [idx];
+            
+            while (queue.length > 0) {
+              const current = queue.shift()!;
+              if (visited[current]) continue;
+              if (mask[current] === 0) continue;
+              
+              visited[current] = 1;
+              component.push(current);
+              
+              const cx = current % w;
+              const cy = Math.floor(current / w);
+              
+              // Check 8-connected neighbors
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  if (dx === 0 && dy === 0) continue;
+                  const nx = cx + dx;
+                  const ny = cy + dy;
+                  if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                    const nIdx = ny * w + nx;
+                    if (mask[nIdx] && !visited[nIdx]) {
+                      queue.push(nIdx);
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Only keep components larger than minSize
+            if (component.length >= minSize) {
+              for (const cIdx of component) {
+                result[cIdx] = 1;
+              }
+            }
+          }
+        }
+        
+        return result;
+      };
+      
+      // Apply isolated pixel removal (minimum 100 pixels to avoid noise)
+      const filteredMask = removeIsolatedPixels(subjectMask, width, height, 100);
+      
+      // Clear pixels that were removed
+      for (let i = 0; i < width * height; i++) {
+        if (subjectMask[i] && !filteredMask[i]) {
+          data[i * 4 + 3] = 0; // Make isolated pixels transparent
+        }
+      }
+      
+      // Update subjectMask to filtered version
+      for (let i = 0; i < width * height; i++) {
+        subjectMask[i] = filteredMask[i];
+      }
+      
       // Flood fill from edges to find external area
       const externalArea = new Uint8Array(width * height).fill(0);
       const stack: [number, number][] = [];
