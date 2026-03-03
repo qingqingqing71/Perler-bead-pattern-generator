@@ -18,11 +18,10 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // 动漫风格化主体输出要求：
-    // 只对主体进行动漫化，不改变轮廓，不扩展画布，
-    // 不添加任何背景，不填充颜色，保持透明，输出PNG
+    // 动漫风格化输入：蒙版抠出的主体（有颜色细节，透明背景）
+    // 要求：只对有颜色的主体区域动漫化，透明背景不是主体，不要生成
     const response = await client.generate({
-      prompt: 'Convert this subject to anime style. REQUIREMENTS: 1) Animate ONLY the subject 2) Do NOT change outline/contour 3) Do NOT extend canvas 4) NO background 5) NO color fill 6) Keep transparent 7) Output PNG with transparency. Same pose, expression, accessories.',
+      prompt: 'Convert this cutout subject to anime style. The input has a subject with color and details on TRANSPARENT background. CRITICAL: 1) Animate ONLY the colored subject area 2) Transparent pixels are NOT subject - do NOT convert them to any color or shape 3) Do NOT change subject outline/contour 4) Do NOT extend canvas 5) Keep transparent background 6) Output PNG with same transparency. Same pose, expression, accessories.',
       image: imageUrl,
       size: '2K',
     });
