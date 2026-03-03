@@ -252,16 +252,28 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Remove black/white background (set black/white pixels to transparent)
-        // This ensures only the subject remains with transparent background
-        const cleanedImage = await removeBackgroundColors(data.imageUrl);
+        // Step 1: Use MediaPipe to segment the anime image again for clean background removal
+        const segmenter = modelRef.current.segmenter;
         
-        setAnimeImage(cleanedImage);
-        setUseAnimeImage(true);
-        
-        // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(cleanedImage, gridSize);
-        setFinalImage(composedImage);
+        if (!segmenter) {
+          // Fallback: use simple background removal if model not available
+          const cleanedImage = await removeBackgroundColors(data.imageUrl);
+          setAnimeImage(cleanedImage);
+          setUseAnimeImage(true);
+          
+          const composedImage = await composeWithGrid(cleanedImage, gridSize);
+          setFinalImage(composedImage);
+        } else {
+          // Use MediaPipe segmentation for accurate background removal
+          const finalAnimeImage = await segmentAnimeImage(data.imageUrl, segmenter);
+          
+          setAnimeImage(finalAnimeImage);
+          setUseAnimeImage(true);
+          
+          // Regenerate grid with anime image
+          const composedImage = await composeWithGrid(finalAnimeImage, gridSize);
+          setFinalImage(composedImage);
+        }
       } else {
         setError(data.error || '动漫风格转换失败');
       }
@@ -1055,6 +1067,53 @@ async function applyBackgroundRemoval(
 
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = imageSrc;
+  });
+}
+
+// Segment anime image using MediaPipe to remove background completely
+async function segmentAnimeImage(
+  imageUrl: string,
+  segmenter: BodySegmenter
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = async () => {
+      try {
+        const originalWidth = img.width;
+        const originalHeight = img.height;
+        
+        // Run segmentation on the anime image
+        const segmentation = await segmenter.segmentPeople(img, {
+          flipHorizontal: false,
+        });
+        
+        if (!segmentation || segmentation.length === 0) {
+          // Fallback: return original image if segmentation fails
+          console.warn('Segmentation failed, returning original image');
+          resolve(imageUrl);
+          return;
+        }
+        
+        // Get the mask
+        const mask = await segmentation[0].mask.toImageData();
+        
+        // Apply mask to remove background
+        const result = await applyBackgroundRemoval(imageUrl, mask, originalWidth, originalHeight);
+        resolve(result);
+      } catch (err) {
+        console.error('Segmentation error:', err);
+        // Fallback: return original image on error
+        resolve(imageUrl);
+      }
+    };
+    
+    img.onerror = () => {
+      console.error('Failed to load anime image');
+      reject(new Error('无法加载动漫图片'));
+    };
+    img.src = imageUrl;
   });
 }
 
