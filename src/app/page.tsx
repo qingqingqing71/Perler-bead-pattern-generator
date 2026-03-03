@@ -1132,7 +1132,41 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         }
       }
 
-      // Step 4: Draw red edge lines around subject
+      // Step 4: Draw red edge lines ONLY on outer boundary (not internal edges)
+      // Use flood fill from outside to find cells that touch the outside
+      const outsideCells = new Set<string>();
+      const floodStack: string[] = [];
+      
+      // Start from all edge cells of the grid area
+      for (let x = 0; x < cellCountX; x++) {
+        if (!coloredCells.has(`${x},0`)) floodStack.push(`${x},0`);
+        if (!coloredCells.has(`${x},${cellCountY - 1}`)) floodStack.push(`${x},${cellCountY - 1}`);
+      }
+      for (let y = 0; y < cellCountY; y++) {
+        if (!coloredCells.has(`0,${y}`)) floodStack.push(`0,${y}`);
+        if (!coloredCells.has(`${cellCountX - 1},${y}`)) floodStack.push(`${cellCountX - 1},${y}`);
+      }
+      
+      // Flood fill to find all cells reachable from outside
+      while (floodStack.length > 0) {
+        const key = floodStack.pop()!;
+        if (outsideCells.has(key)) continue;
+        
+        const [cx, cy] = key.split(',').map(Number);
+        
+        // Stop at colored cells (these are the boundary)
+        if (coloredCells.has(key)) continue;
+        
+        outsideCells.add(key);
+        
+        // Add neighbors
+        if (cx > 0) floodStack.push(`${cx - 1},${cy}`);
+        if (cx < cellCountX - 1) floodStack.push(`${cx + 1},${cy}`);
+        if (cy > 0) floodStack.push(`${cx},${cy - 1}`);
+        if (cy < cellCountY - 1) floodStack.push(`${cx},${cy + 1}`);
+      }
+      
+      // Only draw edges where colored cells touch outside cells
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of coloredCells) {
@@ -1140,21 +1174,21 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         const x = offsetX + cellX * cellSize;
         const y = offsetY + cellY * cellSize;
         
-        // Check four directions: top, bottom, left, right
-        // Top edge (no colored cell above)
-        if (!coloredCells.has(`${cellX},${cellY - 1}`)) {
+        // Only draw edge if neighbor is OUTSIDE (not just non-colored)
+        // Top edge
+        if (outsideCells.has(`${cellX},${cellY - 1}`) || cellY === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
-        // Bottom edge (no colored cell below)
-        if (!coloredCells.has(`${cellX},${cellY + 1}`)) {
+        // Bottom edge
+        if (outsideCells.has(`${cellX},${cellY + 1}`) || cellY === cellCountY - 1) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
-        // Left edge (no colored cell on left)
-        if (!coloredCells.has(`${cellX - 1},${cellY}`)) {
+        // Left edge
+        if (outsideCells.has(`${cellX - 1},${cellY}`) || cellX === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
-        // Right edge (no colored cell on right)
-        if (!coloredCells.has(`${cellX + 1},${cellY}`)) {
+        // Right edge
+        if (outsideCells.has(`${cellX + 1},${cellY}`) || cellX === cellCountX - 1) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
       }
@@ -1355,7 +1389,41 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
         }
       }
 
-      // Step 7: Draw red edge lines around subject
+      // Step 7: Draw red edge lines ONLY on outer boundary (not internal edges)
+      // Use flood fill from outside to find cells that touch the outside
+      const outsideCells = new Set<string>();
+      const floodStack: string[] = [];
+      
+      // Start from all edge cells of the subject area
+      for (let x = 0; x < cellCountX; x++) {
+        if (!coloredCells.has(`${x},0`)) floodStack.push(`${x},0`);
+        if (!coloredCells.has(`${x},${cellCountY - 1}`)) floodStack.push(`${x},${cellCountY - 1}`);
+      }
+      for (let y = 0; y < cellCountY; y++) {
+        if (!coloredCells.has(`0,${y}`)) floodStack.push(`0,${y}`);
+        if (!coloredCells.has(`${cellCountX - 1},${y}`)) floodStack.push(`${cellCountX - 1},${y}`);
+      }
+      
+      // Flood fill to find all cells reachable from outside
+      while (floodStack.length > 0) {
+        const key = floodStack.pop()!;
+        if (outsideCells.has(key)) continue;
+        
+        const [cx, cy] = key.split(',').map(Number);
+        
+        // Stop at colored cells (these are the boundary)
+        if (coloredCells.has(key)) continue;
+        
+        outsideCells.add(key);
+        
+        // Add neighbors
+        if (cx > 0) floodStack.push(`${cx - 1},${cy}`);
+        if (cx < cellCountX - 1) floodStack.push(`${cx + 1},${cy}`);
+        if (cy > 0) floodStack.push(`${cx},${cy - 1}`);
+        if (cy < cellCountY - 1) floodStack.push(`${cx},${cy + 1}`);
+      }
+      
+      // Only draw edges where colored cells touch outside cells
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of coloredCells) {
@@ -1363,21 +1431,21 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
         const x = offsetX + gridX * cellSize;
         const y = offsetY + gridY * cellSize;
         
-        // Check four directions: top, bottom, left, right
-        // Top edge (no colored cell above)
-        if (!coloredCells.has(`${gridX},${gridY - 1}`)) {
+        // Only draw edge if neighbor is OUTSIDE (not just non-colored)
+        // Top edge
+        if (outsideCells.has(`${gridX},${gridY - 1}`) || gridY === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
-        // Bottom edge (no colored cell below)
-        if (!coloredCells.has(`${gridX},${gridY + 1}`)) {
+        // Bottom edge
+        if (outsideCells.has(`${gridX},${gridY + 1}`) || gridY === cellCountY - 1) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
-        // Left edge (no colored cell on left)
-        if (!coloredCells.has(`${gridX - 1},${gridY}`)) {
+        // Left edge
+        if (outsideCells.has(`${gridX - 1},${gridY}`) || gridX === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
-        // Right edge (no colored cell on right)
-        if (!coloredCells.has(`${gridX + 1},${gridY}`)) {
+        // Right edge
+        if (outsideCells.has(`${gridX + 1},${gridY}`) || gridX === cellCountX - 1) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
       }
@@ -1919,7 +1987,7 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
       
-      // Step 10: Draw red edge lines (only for outline cells)
+      // Step 10: Draw red edge lines ONLY on outer boundary (touching outside)
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of outlineCells) {
@@ -1927,16 +1995,21 @@ async function generateBeadPatternHD(
         const x = offsetX + gridX * cellSize;
         const y = offsetY + gridY * cellSize;
         
-        if (!insideCells.has(`${gridX},${gridY - 1}`)) {
+        // Only draw edge if neighbor is OUTSIDE (not just not inside)
+        // Top edge
+        if (outsideCells.has(`${gridX},${gridY - 1}`) || gridY === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
-        if (!insideCells.has(`${gridX},${gridY + 1}`)) {
+        // Bottom edge
+        if (outsideCells.has(`${gridX},${gridY + 1}`) || gridY === srcCellCountY - 1) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
-        if (!insideCells.has(`${gridX - 1},${gridY}`)) {
+        // Left edge
+        if (outsideCells.has(`${gridX - 1},${gridY}`) || gridX === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
-        if (!insideCells.has(`${gridX + 1},${gridY}`)) {
+        // Right edge
+        if (outsideCells.has(`${gridX + 1},${gridY}`) || gridX === srcCellCountX - 1) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
       }
