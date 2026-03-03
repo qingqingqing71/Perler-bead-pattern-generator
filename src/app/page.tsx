@@ -1020,6 +1020,7 @@ async function applyBackgroundRemoval(
       const imageData = ctx.getImageData(0, 0, originalWidth, originalHeight);
       const data = imageData.data;
       
+      // Scale mask to original image size with high quality
       const maskCanvas = document.createElement('canvas');
       const maskCtx = maskCanvas.getContext('2d');
       if (!maskCtx) {
@@ -1046,10 +1047,164 @@ async function applyBackgroundRemoval(
       const scaledMaskData = maskCtx.getImageData(0, 0, originalWidth, originalHeight);
       const maskData = scaledMaskData.data;
 
+      // Step 1: Create binary mask with threshold
+      const threshold = 128;
+      const binaryMask = new Uint8Array(originalWidth * originalHeight);
+      const rawMask = new Float32Array(originalWidth * originalHeight);
+      
+      for (let i = 0; i < maskData.length; i += 4) {
+        const idx = i / 4;
+        rawMask[idx] = maskData[i] / 255;
+        binaryMask[idx] = maskData[i] > threshold ? 1 : 0;
+      }
+
+      // Step 2: Morphological operations - Close (dilate then erode) to fill small holes
+      const morphClose = (mask: Uint8Array, width: number, height: number, kernelSize: number): Uint8Array => {
+        const result = new Uint8Array(mask.length);
+        const half = Math.floor(kernelSize / 2);
+        
+        // Dilate
+        const dilated = new Uint8Array(mask.length);
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            let maxVal = 0;
+            for (let ky = -half; ky <= half; ky++) {
+              for (let kx = -half; kx <= half; kx++) {
+                const nx = Math.min(Math.max(x + kx, 0), width - 1);
+                const ny = Math.min(Math.max(y + ky, 0), height - 1);
+                maxVal = Math.max(maxVal, mask[ny * width + nx]);
+              }
+            }
+            dilated[y * width + x] = maxVal;
+          }
+        }
+        
+        // Erode
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            let minVal = 1;
+            for (let ky = -half; ky <= half; ky++) {
+              for (let kx = -half; kx <= half; kx++) {
+                const nx = Math.min(Math.max(x + kx, 0), width - 1);
+                const ny = Math.min(Math.max(y + ky, 0), height - 1);
+                minVal = Math.min(minVal, dilated[ny * width + nx]);
+              }
+            }
+            result[y * width + x] = minVal;
+          }
+        }
+        
+        return result;
+      };
+
+      // Apply morphological close to fill small holes
+      const closedMask = morphClose(binaryMask, originalWidth, originalHeight, 3);
+
+      // Step 3: Edge feathering - create smooth transitions at edges
+      const edgeDistance = (mask: Uint8Array, width: number, height: number): Float32Array => {
+        const distance = new Float32Array(mask.length);
+        const maxDist = 8; // Feather distance in pixels
+        
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = y * width + x;
+            if (mask[idx] === 1) {
+              // Check distance to nearest background pixel
+              let minDist = maxDist;
+              for (let dy = -maxDist; dy <= maxDist; dy++) {
+                for (let dx = -maxDist; dx <= maxDist; dx++) {
+                  const nx = x + dx;
+                  const ny = y + dy;
+                  if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    if (mask[ny * width + nx] === 0) {
+                      const dist = Math.sqrt(dx * dx + dy * dy);
+                      minDist = Math.min(minDist, dist);
+                    }
+                  }
+                }
+              }
+              distance[idx] = Math.min(1, minDist / maxDist);
+            } else {
+              distance[idx] = 0;
+            }
+          }
+        }
+        
+        return distance;
+      };
+
+      const edgeDist = edgeDistance(closedMask, originalWidth, originalHeight);
+
+      // Step 4: Apply alpha with smooth transitions
       for (let i = 0; i < data.length; i += 4) {
-        const maskValue = maskData[i];
-        let alpha = Math.min(255, Math.max(0, maskValue));
-        data[i + 3] = alpha;
+        const idx = i / 4;
+        
+        // Use raw mask value for interior, feathered edge for boundary
+        const rawValue = rawMask[idx];
+        const closedValue = closedMask[idx];
+        const edgeValue = edgeDist[idx];
+        
+        let alpha: number;
+        
+        if (closedValue === 1) {
+          // Inside the mask - use raw value with edge feathering
+          alpha = rawValue * edgeValue + rawValue * (1 - edgeValue) * 0.95 + 0.05;
+          alpha = Math.max(rawValue, alpha); // Ensure we don't reduce interior values
+        } else {
+          // Outside the mask - use feathered raw value for soft edges
+          alpha = rawValue * 0.3; // Soft edge for pixels just outside
+        }
+        
+        data[i + 3] = Math.min(255, Math.max(0, Math.round(alpha * 255)));
+      }
+
+      // Step 5: Apply slight Gaussian blur to alpha channel for smoother edges
+      const alphaChannel = new Uint8Array(originalWidth * originalHeight);
+      for (let i = 0; i < originalWidth * originalHeight; i++) {
+        alphaChannel[i] = data[i * 4 + 3];
+      }
+      
+      // Simple blur (3x3 kernel)
+      const blurAlpha = (alpha: Uint8Array, width: number, height: number): Uint8Array => {
+        const result = new Uint8Array(alpha.length);
+        const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+        const kernelSum = 16;
+        
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            let sum = 0;
+            let ki = 0;
+            for (let ky = -1; ky <= 1; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                sum += alpha[(y + ky) * width + (x + kx)] * kernel[ki++];
+              }
+            }
+            result[y * width + x] = Math.round(sum / kernelSum);
+          }
+        }
+        
+        // Copy edges
+        for (let x = 0; x < width; x++) {
+          result[x] = alpha[x];
+          result[(height - 1) * width + x] = alpha[(height - 1) * width + x];
+        }
+        for (let y = 0; y < height; y++) {
+          result[y * width] = alpha[y * width];
+          result[y * width + width - 1] = alpha[y * width + width - 1];
+        }
+        
+        return result;
+      };
+      
+      const blurredAlpha = blurAlpha(alphaChannel, originalWidth, originalHeight);
+      
+      // Apply blurred alpha only to edge regions for smoother transitions
+      for (let i = 0; i < originalWidth * originalHeight; i++) {
+        const idx = i * 4;
+        // Only apply blur effect where there's transition (not solid interior)
+        if (data[idx + 3] > 20 && data[idx + 3] < 250) {
+          data[idx + 3] = blurredAlpha[i];
+        }
       }
 
       ctx.putImageData(imageData, 0, 0);
