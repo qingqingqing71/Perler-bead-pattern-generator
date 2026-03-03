@@ -47,6 +47,7 @@ const GRID_OPTIONS = [
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
+  const [removedBgWithEdge, setRemovedBgWithEdge] = useState<string | null>(null); // 原图抠图带红色边缘线
   const [animeImage, setAnimeImage] = useState<string | null>(null);
   const [animeWithEdge, setAnimeWithEdge] = useState<string | null>(null); // 动漫图像带红色边缘线
   const [finalImage, setFinalImage] = useState<string | null>(null);
@@ -121,6 +122,7 @@ export default function Home() {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
+        setRemovedBgWithEdge(null);
         setAnimeImage(null);
         setAnimeWithEdge(null);
         setFinalImage(null);
@@ -143,6 +145,7 @@ export default function Home() {
     setProgress(0);
     setFinalImage(null);
     setRemovedBgImage(null);
+    setRemovedBgWithEdge(null);
     setAnimeImage(null);
     setAnimeWithEdge(null);
     setUseAnimeImage(false);
@@ -219,11 +222,12 @@ export default function Home() {
 
       setRemovedBgImage(result);
 
-      setStep('generating-grid');
-      setProgress(90);
-
-      const composedImage = await composeWithGrid(result, gridSize);
-      setFinalImage(composedImage);
+      // Generate preview with red edge outline
+      const withEdge = await drawAnimeWithEdge(result);
+      setRemovedBgWithEdge(withEdge);
+      
+      // Set final image to the cutout with edge (no grid)
+      setFinalImage(withEdge);
 
       setStep('done');
       setProgress(100);
@@ -233,7 +237,7 @@ export default function Home() {
       setStep('idle');
       setProgress(0);
     }
-  }, [gridSize]);
+  }, []);
 
   // Transform to anime style
   const handleTransformAnime = useCallback(async () => {
@@ -266,9 +270,8 @@ export default function Home() {
         const withEdge = await drawAnimeWithEdge(cleanedImage);
         setAnimeWithEdge(withEdge);
         
-        // Regenerate grid with anime image
-        const composedImage = await composeWithGrid(cleanedImage, gridSize);
-        setFinalImage(composedImage);
+        // Set final image to anime cutout with edge (no grid)
+        setFinalImage(withEdge);
       } else {
         setError(data.error || '动漫风格转换失败');
       }
@@ -278,28 +281,13 @@ export default function Home() {
     } finally {
       setIsTransformingAnime(false);
     }
-  }, [removedBgImage, isTransformingAnime, gridSize]);
+  }, [removedBgImage, isTransformingAnime]);
 
-  // Regenerate with new grid size
+  // Regenerate with new grid size (for pixelation only)
   const handleGridSizeChange = useCallback(async (newGridSize: number) => {
     setGridSize(newGridSize);
-    
-    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
-    
-    if (sourceImage && (step === 'done' || step === 'generating-grid')) {
-      setStep('generating-grid');
-      setProgress(90);
-      
-      try {
-        const composedImage = await composeWithGrid(sourceImage, newGridSize);
-        setFinalImage(composedImage);
-        setStep('done');
-        setProgress(100);
-      } catch (err) {
-        console.error('Failed to regenerate:', err);
-      }
-    }
-  }, [removedBgImage, animeImage, useAnimeImage, step]);
+    // Grid size change only affects pixelation, not the main result
+  }, []);
 
   // Toggle between original and anime image
   const handleToggleImageSource = useCallback(async () => {
@@ -308,22 +296,13 @@ export default function Home() {
     const newUseAnime = !useAnimeImage;
     setUseAnimeImage(newUseAnime);
     
-    const sourceImage = newUseAnime && animeImage ? animeImage : removedBgImage;
-    
-    if (sourceImage) {
-      setStep('generating-grid');
-      setProgress(90);
-      
-      try {
-        const composedImage = await composeWithGrid(sourceImage, gridSize);
-        setFinalImage(composedImage);
-        setStep('done');
-        setProgress(100);
-      } catch (err) {
-        console.error('Failed to regenerate:', err);
-      }
+    // Switch final image between original and anime cutout
+    if (newUseAnime && animeWithEdge) {
+      setFinalImage(animeWithEdge);
+    } else if (removedBgWithEdge) {
+      setFinalImage(removedBgWithEdge);
     }
-  }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
+  }, [removedBgImage, animeWithEdge, removedBgWithEdge, useAnimeImage]);
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
@@ -370,30 +349,24 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = finalImage;
-    link.download = `subject-on-grid-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+    link.download = `cutout${useAnimeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [finalImage, gridSize, useAnimeImage]);
+  }, [finalImage, useAnimeImage]);
 
-  // High-resolution download for processed result
-  const handleDownloadHD = useCallback(async () => {
+  // Download original cutout (without edge outline)
+  const handleDownloadOriginal = useCallback(() => {
     const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
     if (!sourceImage) return;
 
-    try {
-      const hdImage = await composeWithGridHD(sourceImage, gridSize, 3);
-      
-      const link = document.createElement('a');
-      link.href = hdImage;
-      link.download = `subject-on-grid-hd-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error('HD download error:', err);
-    }
-  }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
+    const link = document.createElement('a');
+    link.href = sourceImage;
+    link.download = `cutout-original${useAnimeImage ? '-anime' : ''}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [removedBgImage, animeImage, useAnimeImage]);
 
   const handleDownloadPixelated = useCallback(() => {
     if (!pixelatedImage) return;
@@ -437,6 +410,7 @@ export default function Home() {
   const handleReset = useCallback(() => {
     setOriginalImage(null);
     setRemovedBgImage(null);
+    setRemovedBgWithEdge(null);
     setAnimeImage(null);
     setAnimeWithEdge(null);
     setFinalImage(null);
@@ -685,15 +659,15 @@ export default function Home() {
                       className="flex-1 bg-blue-600 hover:bg-blue-700"
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      下载网格
+                      下载抠图
                     </Button>
                     <Button
-                      onClick={handleDownloadHD}
+                      onClick={handleDownloadOriginal}
                       variant="outline"
                       className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      下载高清
+                      下载原图
                     </Button>
                     <Button
                       variant="outline"
@@ -715,12 +689,27 @@ export default function Home() {
                 处理结果
                 {finalImage && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 网格{useAnimeImage ? ', 动漫风格' : ''})
+                    ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
                   </span>
                 )}
               </h2>
 
-              <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center">
+              <div 
+                className="aspect-square rounded-xl overflow-hidden flex items-center justify-center"
+                style={finalImage ? {
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                } : {
+                  backgroundColor: '#f1f5f9',
+                }}
+              >
                 {finalImage ? (
                   <img
                     src={finalImage}
