@@ -1720,6 +1720,114 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
         }
       }
 
+      // Step 3.5: Remove isolated points (small disconnected regions)
+      // Find connected components and keep only the largest one(s)
+      const removeIsolatedPoints = (cells: Set<string>, minSize: number = 3): Set<string> => {
+        if (cells.size === 0) return cells;
+        
+        const visited = new Set<string>();
+        const components: Array<Set<string>> = [];
+        
+        // Find all connected components using BFS
+        for (const cell of cells) {
+          if (visited.has(cell)) continue;
+          
+          const component = new Set<string>();
+          const queue = [cell];
+          
+          while (queue.length > 0) {
+            const current = queue.shift()!;
+            if (visited.has(current)) continue;
+            if (!cells.has(current)) continue;
+            
+            visited.add(current);
+            component.add(current);
+            
+            const [x, y] = current.split(',').map(Number);
+            // Check 8-connected neighbors
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const neighbor = `${x + dx},${y + dy}`;
+                if (cells.has(neighbor) && !visited.has(neighbor)) {
+                  queue.push(neighbor);
+                }
+              }
+            }
+          }
+          
+          components.push(component);
+        }
+        
+        // Find the largest component (main subject)
+        if (components.length === 0) return cells;
+        
+        components.sort((a, b) => b.size - a.size);
+        const largestSize = components[0].size;
+        
+        // Keep only components that are at least minSize or at least 10% of the largest
+        const threshold = Math.max(minSize, Math.floor(largestSize * 0.1));
+        
+        const keptCells = new Set<string>();
+        for (const component of components) {
+          if (component.size >= threshold) {
+            for (const cell of component) {
+              keptCells.add(cell);
+            }
+          }
+        }
+        
+        return keptCells;
+      };
+      
+      const filteredCells = removeIsolatedPoints(coloredCells, 3);
+      
+      // Redraw subjectCanvas with only non-isolated cells
+      subjectCtx.clearRect(0, 0, gridSize, gridSize);
+      coloredCells.clear();
+      
+      // We need to re-read colors from source for filtered cells
+      for (const key of filteredCells) {
+        const [gridX, gridY] = key.split(',').map(Number);
+        
+        const srcX1 = Math.floor(gridX / cellCountX * imgWidth);
+        const srcY1 = Math.floor(gridY / cellCountY * imgHeight);
+        const srcX2 = Math.floor((gridX + 1) / cellCountX * imgWidth);
+        const srcY2 = Math.floor((gridY + 1) / cellCountY * imgHeight);
+        
+        let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+        let pixelCount = 0;
+        
+        for (let sy = srcY1; sy < srcY2; sy++) {
+          for (let sx = srcX1; sx < srcX2; sx++) {
+            const idx = (sy * imgWidth + sx) * 4;
+            totalR += srcData[idx];
+            totalG += srcData[idx + 1];
+            totalB += srcData[idx + 2];
+            totalA += srcData[idx + 3];
+            pixelCount++;
+          }
+        }
+        
+        if (pixelCount > 0) {
+          const avgR = Math.round(totalR / pixelCount);
+          const avgG = Math.round(totalG / pixelCount);
+          const avgB = Math.round(totalB / pixelCount);
+          const avgA = Math.round(totalA / pixelCount);
+          
+          if (avgA > 10) {
+            subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+            subjectCtx.fillRect(
+              offsetX + gridX * cellSize,
+              offsetY + gridY * cellSize,
+              cellSize,
+              cellSize
+            );
+            coloredCells.add(key);
+          }
+        }
+      }
+
       // Step 4: Create final canvas with white background
       const resultCanvas = document.createElement('canvas');
       const resultCtx = resultCanvas.getContext('2d');
@@ -2393,6 +2501,79 @@ async function generateBeadPatternHD(
             }
           }
         }
+      }
+      
+      // Step 2.5: Remove isolated points (small disconnected regions)
+      const removeIsolatedPoints = (cells: Set<string>, minSize: number = 3): Set<string> => {
+        if (cells.size === 0) return cells;
+        
+        const visited = new Set<string>();
+        const components: Array<Set<string>> = [];
+        
+        // Find all connected components using BFS
+        for (const cell of cells) {
+          if (visited.has(cell)) continue;
+          
+          const component = new Set<string>();
+          const queue = [cell];
+          
+          while (queue.length > 0) {
+            const current = queue.shift()!;
+            if (visited.has(current)) continue;
+            if (!cells.has(current)) continue;
+            
+            visited.add(current);
+            component.add(current);
+            
+            const [x, y] = current.split(',').map(Number);
+            // Check 8-connected neighbors
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const neighbor = `${x + dx},${y + dy}`;
+                if (cells.has(neighbor) && !visited.has(neighbor)) {
+                  queue.push(neighbor);
+                }
+              }
+            }
+          }
+          
+          components.push(component);
+        }
+        
+        // Find the largest component (main subject)
+        if (components.length === 0) return cells;
+        
+        components.sort((a, b) => b.size - a.size);
+        const largestSize = components[0].size;
+        
+        // Keep only components that are at least minSize or at least 10% of the largest
+        const threshold = Math.max(minSize, Math.floor(largestSize * 0.1));
+        
+        const keptCells = new Set<string>();
+        for (const component of components) {
+          if (component.size >= threshold) {
+            for (const cell of component) {
+              keptCells.add(cell);
+            }
+          }
+        }
+        
+        return keptCells;
+      };
+      
+      // Apply isolated point removal
+      const filteredCells = removeIsolatedPoints(coloredCells, 3);
+      
+      // Update coloredCells and remove colors for isolated cells
+      for (const key of coloredCells) {
+        if (!filteredCells.has(key)) {
+          cellColors.delete(key);
+        }
+      }
+      coloredCells.clear();
+      for (const key of filteredCells) {
+        coloredCells.add(key);
       }
       
       // Step 3: Find outline (edge cells)
