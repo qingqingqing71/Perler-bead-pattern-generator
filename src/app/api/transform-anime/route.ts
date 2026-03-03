@@ -18,11 +18,15 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // Use image-to-image transformation with Q-version cute manga style prompt
-    // Input: transparent background subject from AI segmentation (irregular edges)
-    // Output: anime-style subject ONLY, edges follow subject contour (irregular, NOT rectangular canvas)
+    // 动漫主体风格化要求：
+    // 1. 只处理AI抠图出的主体，不改变形状大小
+    // 2. 不添加任何背景
+    // 3. 不填充白色、黑色
+    // 4. 不扩展画布，不变4:3
+    // 5. 保持透明背景
+    // 6. 只输出主体图片，不要多余内容
     const response = await client.generate({
-      prompt: 'Style transfer ONLY - convert this transparent-background subject to Q-version cute chibi manga style. ABSOLUTE REQUIREMENTS: 1) OUTPUT EDGES MUST FOLLOW SUBJECT CONTOUR - the result should have IRREGULAR edges matching the subject shape, NEVER output a rectangular 4:3 or any standard canvas 2) CANVAS SIZE = SUBJECT SIZE - do NOT extend, pad, or fill to standard dimensions 3) ALL AREAS OUTSIDE SUBJECT = TRANSPARENT - no white fill, no background, no canvas extension 4) Keep same pose, orientation, hairstyle, hair color 5) Same facial expression, eye direction, mouth shape 6) Accessories in identical positions 7) Clean kawaii anime style with soft pastel colors 8) No watermark, text, border. The input is a cutout subject with irregular edges on transparent background - output MUST be the same, just styled differently.',
+      prompt: 'Anime style transfer on transparent subject. STRICT RULES: 1) Process ONLY the existing subject - do NOT change shape or size 2) NO background - keep transparent 3) NO white or black fill anywhere 4) NO canvas extension or 4:3 cropping - keep original dimensions 5) Maintain transparent background outside subject 6) Output ONLY the styled subject, nothing extra. Convert to cute chibi manga style with same pose, expression, accessories position. Input has irregular edges on transparent background - output must be identical in shape and size.',
       image: imageUrl,
       size: '2K',
     });
