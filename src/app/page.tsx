@@ -59,7 +59,7 @@ export default function Home() {
   const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
   const [isPixelating, setIsPixelating] = useState(false);
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
-  const [beadPatternLegend, setBeadPatternLegend] = useState<MardColor[]>([]);
+  const [beadPatternLegend, setBeadPatternLegend] = useState<Array<MardColor & { count: number }>>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
   const [modelLoaded, setModelLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -369,6 +369,25 @@ export default function Home() {
     document.body.removeChild(link);
   }, [finalImage, gridSize, useAnimeImage]);
 
+  // High-resolution download for processed result
+  const handleDownloadHD = useCallback(async () => {
+    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
+    if (!sourceImage) return;
+
+    try {
+      const hdImage = await composeWithGridHD(sourceImage, gridSize, 3);
+      
+      const link = document.createElement('a');
+      link.href = hdImage;
+      link.download = `subject-on-grid-hd-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('HD download error:', err);
+    }
+  }, [removedBgImage, animeImage, useAnimeImage, gridSize]);
+
   const handleDownloadPixelated = useCallback(() => {
     if (!pixelatedImage) return;
 
@@ -661,6 +680,14 @@ export default function Home() {
                       下载网格
                     </Button>
                     <Button
+                      onClick={handleDownloadHD}
+                      variant="outline"
+                      className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      下载高清
+                    </Button>
+                    <Button
                       variant="outline"
                       onClick={handleReset}
                     >
@@ -877,8 +904,12 @@ export default function Home() {
                           style={{ backgroundColor: color.hex }}
                         />
                         <span className="text-sm font-medium">{color.code}</span>
+                        <span className="text-sm text-slate-500">×{color.count}</span>
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                    总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
                   </div>
                 </div>
               )}
@@ -1203,6 +1234,203 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         ctx.moveTo(line.x1, line.y1);
         ctx.lineTo(line.x2, line.y2);
         ctx.stroke();
+      }
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
+  });
+}
+
+// High-resolution version of composeWithGrid
+async function composeWithGridHD(
+  imageUrl: string, 
+  gridCount: number, 
+  scale: number = 3
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const baseGridSize = 800;
+      const gridSize = baseGridSize * scale;
+      const cellSize = gridSize / gridCount;
+      const marginSize = 50 * scale;
+      const totalSize = gridSize + marginSize * 2;
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+
+      canvas.width = totalSize;
+      canvas.height = totalSize;
+
+      // Draw white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, totalSize, totalSize);
+
+      // Calculate image size (area = grid size² * 0.9, keep aspect ratio)
+      const targetArea = gridSize * gridSize * 0.9;
+      const originalArea = img.width * img.height;
+      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      let imgWidth = img.width * scaleFactor;
+      let imgHeight = img.height * scaleFactor;
+
+      // Align to grid cells
+      const alignedImgWidth = Math.round(imgWidth / cellSize) * cellSize;
+      const alignedImgHeight = Math.round(imgHeight / cellSize) * cellSize;
+      
+      // Center the image (aligned to grid)
+      const offsetX = marginSize + Math.round((gridSize - alignedImgWidth) / 2 / cellSize) * cellSize;
+      const offsetY = marginSize + Math.round((gridSize - alignedImgHeight) / 2 / cellSize) * cellSize;
+      
+      // Draw the image
+      ctx.drawImage(img, offsetX, offsetY, alignedImgWidth, alignedImgHeight);
+      
+      // Get image data for edge detection
+      const imageData = ctx.getImageData(0, 0, totalSize, totalSize);
+      const data = imageData.data;
+      
+      // Detect colored cells (alpha > 10 means it's part of subject)
+      const coloredCells = new Set<string>();
+      const cellCountX = Math.round(alignedImgWidth / cellSize);
+      const cellCountY = Math.round(alignedImgHeight / cellSize);
+      
+      for (let cellY = 0; cellY < cellCountY; cellY++) {
+        for (let cellX = 0; cellX < cellCountX; cellX++) {
+          const centerX = Math.floor(offsetX + (cellX + 0.5) * cellSize);
+          const centerY = Math.floor(offsetY + (cellY + 0.5) * cellSize);
+          const idx = (centerY * totalSize + centerX) * 4;
+          
+          if (data[idx + 3] > 10) {
+            coloredCells.add(`${cellX},${cellY}`);
+          }
+        }
+      }
+
+      // Draw grid lines ON TOP
+      ctx.strokeStyle = '#d1d5db';
+      ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
+
+      for (let i = 0; i <= gridCount; i++) {
+        const pos = marginSize + i * cellSize;
+        
+        ctx.beginPath();
+        ctx.moveTo(pos, marginSize);
+        ctx.lineTo(pos, marginSize + gridSize);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(marginSize, pos);
+        ctx.lineTo(marginSize + gridSize, pos);
+        ctx.stroke();
+      }
+
+      // Draw thicker lines every 5 cells
+      if (gridCount >= 10) {
+        ctx.strokeStyle = '#9ca3af';
+        ctx.lineWidth = Math.max(1.5, Math.floor(scale * 0.75));
+        
+        for (let i = 0; i <= gridCount; i += 5) {
+          const pos = marginSize + i * cellSize;
+          
+          ctx.beginPath();
+          ctx.moveTo(pos, marginSize);
+          ctx.lineTo(pos, marginSize + gridSize);
+          ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.moveTo(marginSize, pos);
+          ctx.lineTo(marginSize + gridSize, pos);
+          ctx.stroke();
+        }
+      }
+
+      // Draw red edge lines ONLY on outer boundary
+      const outsideCells = new Set<string>();
+      const floodStack: string[] = [];
+      
+      for (let x = 0; x < cellCountX; x++) {
+        if (!coloredCells.has(`${x},0`)) floodStack.push(`${x},0`);
+        if (!coloredCells.has(`${x},${cellCountY - 1}`)) floodStack.push(`${x},${cellCountY - 1}`);
+      }
+      for (let y = 0; y < cellCountY; y++) {
+        if (!coloredCells.has(`0,${y}`)) floodStack.push(`0,${y}`);
+        if (!coloredCells.has(`${cellCountX - 1},${y}`)) floodStack.push(`${cellCountX - 1},${y}`);
+      }
+      
+      while (floodStack.length > 0) {
+        const key = floodStack.pop()!;
+        if (outsideCells.has(key)) continue;
+        
+        const [cx, cy] = key.split(',').map(Number);
+        
+        if (coloredCells.has(key)) continue;
+        
+        outsideCells.add(key);
+        
+        if (cx > 0) floodStack.push(`${cx - 1},${cy}`);
+        if (cx < cellCountX - 1) floodStack.push(`${cx + 1},${cy}`);
+        if (cy > 0) floodStack.push(`${cx},${cy - 1}`);
+        if (cy < cellCountY - 1) floodStack.push(`${cx},${cy + 1}`);
+      }
+      
+      const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+      
+      for (const key of coloredCells) {
+        const [cellX, cellY] = key.split(',').map(Number);
+        const x = offsetX + cellX * cellSize;
+        const y = offsetY + cellY * cellSize;
+        
+        if (outsideCells.has(`${cellX},${cellY - 1}`) || cellY === 0) {
+          edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
+        }
+        if (outsideCells.has(`${cellX},${cellY + 1}`) || cellY === cellCountY - 1) {
+          edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
+        }
+        if (outsideCells.has(`${cellX - 1},${cellY}`) || cellX === 0) {
+          edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
+        }
+        if (outsideCells.has(`${cellX + 1},${cellY}`) || cellX === cellCountX - 1) {
+          edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
+        }
+      }
+      
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = Math.max(2, Math.floor(scale * 1));
+      ctx.lineCap = 'round';
+      
+      for (const line of edgeLines) {
+        ctx.beginPath();
+        ctx.moveTo(line.x1, line.y1);
+        ctx.lineTo(line.x2, line.y2);
+        ctx.stroke();
+      }
+
+      // Draw edge numbers
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const numberFontSize = Math.max(14, Math.min(24, marginSize / 2.5));
+      ctx.font = `bold ${numberFontSize}px Arial`;
+
+      for (let i = 0; i < gridCount; i++) {
+        const xPos = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), xPos, marginSize / 2);
+        ctx.fillText(String(i + 1), xPos, totalSize - marginSize / 2);
+      }
+
+      for (let i = 0; i < gridCount; i++) {
+        const yPos = marginSize + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), marginSize / 2, yPos);
+        ctx.fillText(String(i + 1), totalSize - marginSize / 2, yPos);
       }
 
       resolve(canvas.toDataURL('image/png'));
@@ -1707,7 +1935,7 @@ async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
   scale: number = 3
-): Promise<{ image: string; legend: MardColor[] }> {
+): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1777,7 +2005,6 @@ async function generateBeadPatternHD(
       const outlineCells = new Set<string>();
       for (const key of coloredCells) {
         const [x, y] = key.split(',').map(Number);
-        // A cell is on the outline if any neighbor is not colored
         if (!coloredCells.has(`${x},${y - 1}`) ||
             !coloredCells.has(`${x},${y + 1}`) ||
             !coloredCells.has(`${x - 1},${y}`) ||
@@ -1787,7 +2014,6 @@ async function generateBeadPatternHD(
       }
       
       // Step 4: Fill inside the outline using flood fill from outside
-      // First, find all cells outside the outline, then invert
       const allCellsInBounds = new Set<string>();
       for (let y = 0; y < srcCellCountY; y++) {
         for (let x = 0; x < srcCellCountX; x++) {
@@ -1795,11 +2021,9 @@ async function generateBeadPatternHD(
         }
       }
       
-      // Flood fill from edges to find outside cells
       const outsideCells = new Set<string>();
       const stack: string[] = [];
       
-      // Start from all edge cells that are not colored
       for (let x = 0; x < srcCellCountX; x++) {
         const topKey = `${x},0`;
         const bottomKey = `${x},${srcCellCountY - 1}`;
@@ -1816,19 +2040,17 @@ async function generateBeadPatternHD(
       while (stack.length > 0) {
         const key = stack.pop()!;
         if (outsideCells.has(key)) continue;
-        if (coloredCells.has(key)) continue; // Stop at colored cells (outline)
+        if (coloredCells.has(key)) continue;
         
         outsideCells.add(key);
         const [x, y] = key.split(',').map(Number);
         
-        // Add neighbors
         if (x > 0) stack.push(`${x - 1},${y}`);
         if (x < srcCellCountX - 1) stack.push(`${x + 1},${y}`);
         if (y > 0) stack.push(`${x},${y - 1}`);
         if (y < srcCellCountY - 1) stack.push(`${x},${y + 1}`);
       }
       
-      // Cells inside outline = all cells - outside cells
       const insideCells = new Set<string>();
       for (const key of allCellsInBounds) {
         if (!outsideCells.has(key)) {
@@ -1870,7 +2092,6 @@ async function generateBeadPatternHD(
       
       const selectedColorCodes = new Set(selectedColors.map(c => c.code));
       
-      // Helper function
       const hexToRgb = (hex: string) => {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? {
@@ -1880,15 +2101,18 @@ async function generateBeadPatternHD(
         } : { r: 255, g: 255, b: 255 };
       };
       
-      // Step 7: Create HD canvas
+      // Step 7: Create HD canvas with space for legend on the right
       const gridAreaSize = 800 * scale;
       const marginSize = 50 * scale;
-      const totalSize = gridAreaSize + marginSize * 2;
+      const legendWidth = 200 * scale;  // Space for color legend
+      const gridTotalSize = gridAreaSize + marginSize * 2;
+      const totalWidth = gridTotalSize + legendWidth;
+      const totalHeight = gridTotalSize;
       const cellSize = gridAreaSize / gridSize;
       
       const canvas = document.createElement('canvas');
-      canvas.width = totalSize;
-      canvas.height = totalSize;
+      canvas.width = totalWidth;
+      canvas.height = totalHeight;
       
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -1897,13 +2121,12 @@ async function generateBeadPatternHD(
       }
       
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, totalSize, totalSize);
+      ctx.fillRect(0, 0, totalWidth, totalHeight);
       
-      // Calculate subject position
       const offsetX = marginSize + Math.floor((gridSize - srcCellCountX) / 2) * cellSize;
       const offsetY = marginSize + Math.floor((gridSize - srcCellCountY) / 2) * cellSize;
       
-      // Step 8: Fill ALL cells inside outline
+      // Step 8: Fill ALL cells inside outline and track final color usage
       const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
       const drawnBlocks: Array<{
         x: number;
@@ -1915,6 +2138,7 @@ async function generateBeadPatternHD(
       }> = [];
       
       const colorMap = new Map<string, MardColor>();
+      const finalColorCount = new Map<string, number>();  // Track final usage count
       const whiteMardColor: MardColor = { code: 'W', hex: '#FFFFFF' };
       
       for (const key of insideCells) {
@@ -1926,10 +2150,8 @@ async function generateBeadPatternHD(
         let finalRgb: { r: number; g: number; b: number };
         
         if (coloredCells.has(key)) {
-          // Has color - use MARD color
           let mardColor = mardColorMap.get(key)!;
           
-          // If not in selected colors, find closest
           if (!selectedColorCodes.has(mardColor.code)) {
             const srcColor = cellColors.get(key)!;
             let minDist = Infinity;
@@ -1950,16 +2172,13 @@ async function generateBeadPatternHD(
           finalColor = mardColor;
           finalRgb = hexToRgb(mardColor.hex);
         } else {
-          // Transparent inside outline - use white
           finalColor = whiteMardColor;
           finalRgb = { r: 255, g: 255, b: 255 };
         }
         
-        // Fill the block
         ctx.fillStyle = finalColor.hex;
         ctx.fillRect(x, y, cellSize, cellSize);
         
-        // Track
         drawnBlocks.push({
           x, y,
           color: finalColor,
@@ -1971,6 +2190,10 @@ async function generateBeadPatternHD(
         if (!colorMap.has(finalColor.code)) {
           colorMap.set(finalColor.code, finalColor);
         }
+        
+        // Count final color usage
+        const count = finalColorCount.get(finalColor.code) || 0;
+        finalColorCount.set(finalColor.code, count + 1);
       }
       
       // Step 9: Draw MARD color codes
@@ -1987,7 +2210,7 @@ async function generateBeadPatternHD(
         ctx.fillText(block.color.code, centerX, centerY);
       }
       
-      // Step 10: Draw red edge lines ONLY on outer boundary (touching outside)
+      // Step 10: Draw red edge lines ONLY on outer boundary
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of outlineCells) {
@@ -1995,20 +2218,15 @@ async function generateBeadPatternHD(
         const x = offsetX + gridX * cellSize;
         const y = offsetY + gridY * cellSize;
         
-        // Only draw edge if neighbor is OUTSIDE (not just not inside)
-        // Top edge
         if (outsideCells.has(`${gridX},${gridY - 1}`) || gridY === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x + cellSize, y2: y });
         }
-        // Bottom edge
         if (outsideCells.has(`${gridX},${gridY + 1}`) || gridY === srcCellCountY - 1) {
           edgeLines.push({ x1: x, y1: y + cellSize, x2: x + cellSize, y2: y + cellSize });
         }
-        // Left edge
         if (outsideCells.has(`${gridX - 1},${gridY}`) || gridX === 0) {
           edgeLines.push({ x1: x, y1: y, x2: x, y2: y + cellSize });
         }
-        // Right edge
         if (outsideCells.has(`${gridX + 1},${gridY}`) || gridX === srcCellCountX - 1) {
           edgeLines.push({ x1: x + cellSize, y1: y, x2: x + cellSize, y2: y + cellSize });
         }
@@ -2072,16 +2290,75 @@ async function generateBeadPatternHD(
       for (let i = 0; i < gridSize; i++) {
         const xPos = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), xPos, marginSize / 2);
-        ctx.fillText(String(i + 1), xPos, totalSize - marginSize / 2);
+        ctx.fillText(String(i + 1), xPos, gridTotalSize - marginSize / 2);
       }
 
       for (let i = 0; i < gridSize; i++) {
         const yPos = marginSize + (i + 0.5) * cellSize;
         ctx.fillText(String(i + 1), marginSize / 2, yPos);
-        ctx.fillText(String(i + 1), totalSize - marginSize / 2, yPos);
+        ctx.fillText(String(i + 1), gridTotalSize - marginSize / 2, yPos);
       }
 
-      const legend = Array.from(colorMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+      // Step 13: Draw color legend on the right side
+      const legendX = gridTotalSize + 20 * scale;
+      const legendStartY = marginSize;
+      const legendItemHeight = 40 * scale;
+      const colorBoxSize = 30 * scale;
+      
+      // Legend title
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'left';
+      ctx.font = `bold ${16 * scale}px Arial`;
+      ctx.fillText('色号图例', legendX, legendStartY - 10 * scale);
+      
+      // Sort colors by code
+      const sortedColors = Array.from(colorMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      
+      ctx.font = `${14 * scale}px Arial`;
+      
+      sortedColors.forEach(([code, color], index) => {
+        const y = legendStartY + index * legendItemHeight;
+        const count = finalColorCount.get(code) || 0;
+        const rgb = hexToRgb(color.hex);
+        
+        // Draw color box
+        ctx.fillStyle = color.hex;
+        ctx.fillRect(legendX, y, colorBoxSize, colorBoxSize);
+        
+        // Draw border for white
+        if (color.hex.toUpperCase() === '#FFFFFF') {
+          ctx.strokeStyle = '#d1d5db';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(legendX, y, colorBoxSize, colorBoxSize);
+        }
+        
+        // Draw color code and count
+        const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.font = `bold ${12 * scale}px Arial`;
+        ctx.fillText(code, legendX + colorBoxSize / 2, y + colorBoxSize / 2 + 4 * scale);
+        
+        // Draw count on the right
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'left';
+        ctx.font = `${14 * scale}px Arial`;
+        ctx.fillText(`×${count}`, legendX + colorBoxSize + 10 * scale, y + colorBoxSize / 2 + 5 * scale);
+      });
+      
+      // Total count
+      const totalBeads = Array.from(finalColorCount.values()).reduce((a, b) => a + b, 0);
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'left';
+      ctx.font = `bold ${14 * scale}px Arial`;
+      ctx.fillText(`总计: ${totalBeads} 颗`, legendX, legendStartY + sortedColors.length * legendItemHeight + 20 * scale);
+
+      // Build legend with counts
+      const legend = sortedColors.map(([code, color]) => ({
+        ...color,
+        count: finalColorCount.get(code) || 0
+      }));
 
       resolve({
         image: canvas.toDataURL('image/png'),
