@@ -19,10 +19,10 @@ export async function POST(request: NextRequest) {
       : `data:image/png;base64,${imageBase64}`;
 
     // Use image-to-image transformation with Q-version cute manga style prompt
-    // Input: transparent background subject from AI segmentation
-    // Output: anime-style subject with similar size, NO canvas extension or padding
+    // Input: transparent background subject from AI segmentation (irregular edges)
+    // Output: anime-style subject ONLY, edges follow subject contour (irregular, NOT rectangular canvas)
     const response = await client.generate({
-      prompt: 'Convert this transparent-background subject to Q-version cute chibi manga cartoon style. CRITICAL RULES: 1) Output ONLY the subject, keep SAME SIZE and DIMENSIONS as input - do NOT extend canvas, do NOT add padding, do NOT resize to standard sizes 2) Keep EXACTLY the same body orientation and facing direction 3) Keep EXACTLY the same hairstyle and hair color 4) Keep EXACTLY the same pose, gesture, posture 5) FACIAL EXPRESSION must be IDENTICAL - same eyes shape, eye direction, eyebrow position 6) MOUTH must be EXACTLY the same - if original mouth is open/closed/smiling, the result MUST be identical 7) ACCESSORIES POSITION MUST MATCH - glasses, hats, earrings in identical positions 8) Maintain TRANSPARENT BACKGROUND - only output the anime-style subject, no background 9) Clean kawaii anime vector style with soft pastel colors 10) No watermark, text, signature, border, or frame anywhere',
+      prompt: 'Style transfer ONLY - convert this transparent-background subject to Q-version cute chibi manga style. ABSOLUTE REQUIREMENTS: 1) OUTPUT EDGES MUST FOLLOW SUBJECT CONTOUR - the result should have IRREGULAR edges matching the subject shape, NEVER output a rectangular 4:3 or any standard canvas 2) CANVAS SIZE = SUBJECT SIZE - do NOT extend, pad, or fill to standard dimensions 3) ALL AREAS OUTSIDE SUBJECT = TRANSPARENT - no white fill, no background, no canvas extension 4) Keep same pose, orientation, hairstyle, hair color 5) Same facial expression, eye direction, mouth shape 6) Accessories in identical positions 7) Clean kawaii anime style with soft pastel colors 8) No watermark, text, border. The input is a cutout subject with irregular edges on transparent background - output MUST be the same, just styled differently.',
       image: imageUrl,
       size: '2K',
     });
