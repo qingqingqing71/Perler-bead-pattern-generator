@@ -247,8 +247,12 @@ export default function Home() {
     setError(null);
 
     try {
+      // Step 1: Crop image to subject bounding box (remove transparent borders)
+      // This ensures only the subject is sent to the anime transformation API
+      const croppedImage = await cropToSubject(removedBgImage);
+      
       // Extract base64 data from data URL
-      const base64Data = removedBgImage.split(',')[1] || removedBgImage;
+      const base64Data = croppedImage.split(',')[1] || croppedImage;
 
       const response = await fetch('/api/transform-anime', {
         method: 'POST',
@@ -990,6 +994,92 @@ function readFileAsDataURL(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
+
+// Crop image to subject bounding box (remove transparent borders)
+async function cropToSubject(imageUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Find bounding box of non-transparent pixels
+      let minX = width, maxX = 0, minY = height, maxY = 0;
+      let hasContent = false;
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          if (data[idx + 3] > 10) { // Alpha > 10 means visible pixel
+            hasContent = true;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      
+      if (!hasContent) {
+        // No content found, return original
+        resolve(imageUrl);
+        return;
+      }
+      
+      // Add small padding (5% of size)
+      const paddingX = Math.max(10, Math.round((maxX - minX) * 0.05));
+      const paddingY = Math.max(10, Math.round((maxY - minY) * 0.05));
+      
+      minX = Math.max(0, minX - paddingX);
+      maxX = Math.min(width - 1, maxX + paddingX);
+      minY = Math.max(0, minY - paddingY);
+      maxY = Math.min(height - 1, maxY + paddingY);
+      
+      const croppedWidth = maxX - minX + 1;
+      const croppedHeight = maxY - minY + 1;
+      
+      // Create cropped canvas
+      const croppedCanvas = document.createElement('canvas');
+      const croppedCtx = croppedCanvas.getContext('2d');
+      
+      if (!croppedCtx) {
+        resolve(imageUrl);
+        return;
+      }
+      
+      croppedCanvas.width = croppedWidth;
+      croppedCanvas.height = croppedHeight;
+      
+      // Draw cropped region
+      croppedCtx.drawImage(
+        canvas,
+        minX, minY, croppedWidth, croppedHeight,
+        0, 0, croppedWidth, croppedHeight
+      );
+      
+      resolve(croppedCanvas.toDataURL('image/png'));
+    };
+    
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
   });
 }
 
