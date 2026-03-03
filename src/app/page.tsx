@@ -240,7 +240,7 @@ export default function Home() {
     setError(null);
 
     try {
-      // Extract base64 data from data URL
+      // Step 1: 调用动漫风格化 API
       const base64Data = removedBgImage.split(',')[1] || removedBgImage;
 
       const response = await fetch('/api/transform-anime', {
@@ -252,17 +252,67 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // 直接使用动漫风格化主体，不做 removeBackgroundColors 后处理
-        // API 输入是透明背景的抠图主体，输出也是透明背景的动漫风格主体
-        
-        // 将外部图片 URL 转换为 data URL
+        // Step 2: 将外部图片 URL 转换为 data URL
         const animeDataUrl = await fetchImageAsDataUrl(data.imageUrl);
         
-        setAnimeImage(animeDataUrl);
+        // Step 3: 对动漫化结果进行 AI 抠图，确保主体干净
+        const segmenter = modelRef.current.segmenter;
+        
+        if (!segmenter) {
+          // 如果模型未加载，直接使用原图
+          setAnimeImage(animeDataUrl);
+          setUseAnimeImage(true);
+          const composedImage = await composeWithGrid(animeDataUrl, gridSize);
+          setFinalImage(composedImage);
+          return;
+        }
+        
+        // 加载动漫图片进行 AI 抠图
+        const cleanedAnimeImage = await new Promise<string>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          
+          img.onload = async () => {
+            try {
+              const originalWidth = img.width;
+              const originalHeight = img.height;
+              
+              // AI 分割
+              const segmentation = await segmenter.segmentPeople(img, {
+                flipHorizontal: false,
+              });
+              
+              if (!segmentation || segmentation.length === 0) {
+                // 分割失败，直接使用原图
+                resolve(animeDataUrl);
+                return;
+              }
+              
+              // 获取蒙版并应用
+              const mask = await segmentation[0].mask.toImageData();
+              const removedBgDataUrl = await applyBackgroundRemoval(
+                animeDataUrl,
+                mask,
+                originalWidth,
+                originalHeight
+              );
+              
+              resolve(removedBgDataUrl);
+            } catch (err) {
+              // 出错时使用原图
+              resolve(animeDataUrl);
+            }
+          };
+          img.onerror = () => resolve(animeDataUrl);
+          img.src = animeDataUrl;
+        });
+        
+        // Step 4: 保存抠出的动漫主体
+        setAnimeImage(cleanedAnimeImage);
         setUseAnimeImage(true);
         
-        // 直接将动漫风格化主体放置在透明网格纸上
-        const composedImage = await composeWithGrid(animeDataUrl, gridSize);
+        // Step 5: 将抠出的动漫主体放置在透明网格纸上
+        const composedImage = await composeWithGrid(cleanedAnimeImage, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
