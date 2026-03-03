@@ -1709,6 +1709,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
   });
 }
 
+// Remove black/white background from edges only (preserve black accessories like glasses)
 async function removeBackgroundColors(imageUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -1729,22 +1730,64 @@ async function removeBackgroundColors(imageUrl: string): Promise<string> {
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
+      const width = canvas.width;
+      const height = canvas.height;
 
-      // Remove black/near-black and white/near-white pixels (make them transparent)
-      // This ensures we only keep the subject, with transparent background
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        
-        // Check if pixel is black or near-black (threshold: 30)
+      // Create mask for pixels to remove (background)
+      const toRemove = new Uint8Array(width * height).fill(0);
+      
+      // Check if pixel is black or white background
+      const isBackgroundColor = (r: number, g: number, b: number): boolean => {
         const isBlack = r < 30 && g < 30 && b < 30;
+        const isWhite = r > 235 && g > 235 && b > 235;
+        return isBlack || isWhite;
+      };
+      
+      // Flood fill from edges to find background regions
+      const floodFill = (startX: number, startY: number) => {
+        const stack: [number, number][] = [[startX, startY]];
+        const visited = new Set<string>();
         
-        // Check if pixel is white or near-white (threshold: 225)
-        const isWhite = r > 225 && g > 225 && b > 225;
-        
-        if (isBlack || isWhite) {
-          data[i + 3] = 0; // Set alpha to 0 (transparent)
+        while (stack.length > 0) {
+          const [x, y] = stack.pop()!;
+          const key = `${x},${y}`;
+          
+          if (visited.has(key)) continue;
+          if (x < 0 || x >= width || y < 0 || y >= height) continue;
+          
+          const idx = (y * width + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const a = data[idx + 3];
+          
+          // Only process if it's background color and not already marked
+          const pixelIdx = y * width + x;
+          if (toRemove[pixelIdx]) continue;
+          if (!isBackgroundColor(r, g, b)) continue;
+          if (a < 10) continue; // Already transparent
+          
+          visited.add(key);
+          toRemove[pixelIdx] = 1;
+          
+          stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+        }
+      };
+      
+      // Start flood fill from all edges
+      for (let x = 0; x < width; x++) {
+        floodFill(x, 0);
+        floodFill(x, height - 1);
+      }
+      for (let y = 0; y < height; y++) {
+        floodFill(0, y);
+        floodFill(width - 1, y);
+      }
+      
+      // Apply mask - make background pixels transparent
+      for (let i = 0; i < width * height; i++) {
+        if (toRemove[i]) {
+          data[i * 4 + 3] = 0;
         }
       }
 
