@@ -240,7 +240,7 @@ export default function Home() {
     setError(null);
 
     try {
-      // Step 1: 调用动漫风格化 API
+      // Extract base64 data from data URL
       const base64Data = removedBgImage.split(',')[1] || removedBgImage;
 
       const response = await fetch('/api/transform-anime', {
@@ -252,67 +252,15 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success && data.imageUrl) {
-        // Step 2: 将外部图片 URL 转换为 data URL
-        const animeDataUrl = await fetchImageAsDataUrl(data.imageUrl);
+        // Remove black/white background (set black/white pixels to transparent)
+        // This ensures only the subject remains with transparent background
+        const cleanedImage = await removeBackgroundColors(data.imageUrl);
         
-        // Step 3: 对动漫化结果进行 AI 抠图，确保主体干净
-        const segmenter = modelRef.current.segmenter;
-        
-        if (!segmenter) {
-          // 如果模型未加载，直接使用原图
-          setAnimeImage(animeDataUrl);
-          setUseAnimeImage(true);
-          const composedImage = await composeWithGrid(animeDataUrl, gridSize);
-          setFinalImage(composedImage);
-          return;
-        }
-        
-        // 加载动漫图片进行 AI 抠图
-        const cleanedAnimeImage = await new Promise<string>((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          
-          img.onload = async () => {
-            try {
-              const originalWidth = img.width;
-              const originalHeight = img.height;
-              
-              // AI 分割
-              const segmentation = await segmenter.segmentPeople(img, {
-                flipHorizontal: false,
-              });
-              
-              if (!segmentation || segmentation.length === 0) {
-                // 分割失败，直接使用原图
-                resolve(animeDataUrl);
-                return;
-              }
-              
-              // 获取蒙版并应用
-              const mask = await segmentation[0].mask.toImageData();
-              const removedBgDataUrl = await applyBackgroundRemoval(
-                animeDataUrl,
-                mask,
-                originalWidth,
-                originalHeight
-              );
-              
-              resolve(removedBgDataUrl);
-            } catch (err) {
-              // 出错时使用原图
-              resolve(animeDataUrl);
-            }
-          };
-          img.onerror = () => resolve(animeDataUrl);
-          img.src = animeDataUrl;
-        });
-        
-        // Step 4: 保存抠出的动漫主体
-        setAnimeImage(cleanedAnimeImage);
+        setAnimeImage(cleanedImage);
         setUseAnimeImage(true);
         
-        // Step 5: 将抠出的动漫主体放置在透明网格纸上
-        const composedImage = await composeWithGrid(cleanedAnimeImage, gridSize);
+        // Regenerate grid with anime image
+        const composedImage = await composeWithGrid(cleanedImage, gridSize);
         setFinalImage(composedImage);
       } else {
         setError(data.error || '动漫风格转换失败');
@@ -1011,18 +959,6 @@ function readFileAsDataURL(file: File): Promise<string> {
   });
 }
 
-// Fetch external image URL and convert to data URL
-async function fetchImageAsDataUrl(url: string): Promise<string> {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
 async function applyBackgroundRemoval(
   imageSrc: string, 
   mask: ImageData,
@@ -1114,19 +1050,16 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       canvas.width = width;
       canvas.height = height;
 
-      // No white background - keep transparent
-      // 主体会直接放在透明画布上
+      // Step 1: Draw white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
 
-      // Calculate image size (max dimension = gridCount * 0.9 cells)
-      const maxCellCount = gridCount * 0.9;
-      const maxImageSize = maxCellCount * cellSize;
-      let imgWidth = img.width;
-      let imgHeight = img.height;
-      
-      // Scale to fit within max size while maintaining aspect ratio
-      const scale = Math.min(maxImageSize / imgWidth, maxImageSize / imgHeight);
-      imgWidth = imgWidth * scale;
-      imgHeight = imgHeight * scale;
+      // Step 2: Calculate image size (area = grid size² * 0.9, keep aspect ratio)
+      const targetArea = gridSize * gridSize * 0.9;
+      const originalArea = img.width * img.height;
+      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      let imgWidth = img.width * scaleFactor;
+      let imgHeight = img.height * scaleFactor;
 
       // Align to grid cells
       const alignedImgWidth = Math.round(imgWidth / cellSize) * cellSize;
@@ -1136,7 +1069,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
       const offsetX = Math.round((width - alignedImgWidth) / 2 / cellSize) * cellSize;
       const offsetY = Math.round((height - alignedImgHeight) / 2 / cellSize) * cellSize;
       
-      // Draw the image (transparent background)
+      // Draw the image
       ctx.drawImage(img, offsetX, offsetY, alignedImgWidth, alignedImgHeight);
       
       // Get image data for edge detection
@@ -1161,7 +1094,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         }
       }
 
-      // Draw grid lines ON TOP of the subject
+      // Step 3: Draw grid lines ON TOP
       ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
@@ -1199,7 +1132,7 @@ async function composeWithGrid(imageUrl: string, gridCount: number): Promise<str
         }
       }
 
-      // Draw red edge lines around subject
+      // Step 4: Draw red edge lines around subject
       const edgeLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
       for (const key of coloredCells) {

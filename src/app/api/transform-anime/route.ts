@@ -18,10 +18,11 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // 动漫风格化输入：蒙版抠出的主体（有颜色细节，透明背景）
-    // 要求：只对有颜色的主体区域动漫化，透明背景不是主体，不要生成
+    // Use image-to-image transformation with Q-version cute manga style prompt
+    // IMPORTANT: Only output the subject itself, NO background extension or padding
+    // CRITICAL: Preserve white parts of the subject as WHITE PIXELS, not transparent!
     const response = await client.generate({
-      prompt: 'Convert this cutout subject to anime style. The input has a subject with color and details on TRANSPARENT background. CRITICAL: 1) Animate ONLY the colored subject area 2) Transparent pixels are NOT subject - do NOT convert them to any color or shape 3) Do NOT change subject outline/contour 4) Do NOT extend canvas 5) Keep transparent background 6) Output PNG with same transparency. Same pose, expression, accessories.',
+      prompt: 'Convert ONLY the person/subject in this image to Q-version cute chibi manga cartoon style. STRICT RULES: 1) OUTPUT ONLY THE SUBJECT - do NOT add any background, padding, or extend the canvas to a standard size. Keep the output tight around the character 2) FACIAL EXPRESSION must be IDENTICAL - same eyes shape, eye size, eye direction, eyebrow position 3) MOUTH must be EXACTLY the same - if original mouth is open/closed/smiling/pouting, the result MUST be identical, same mouth opening size and shape 4) Keep EXACTLY the same body orientation and facing direction 5) Keep EXACTLY the same hairstyle and hair color 6) Keep EXACTLY the same pose, gesture, posture 7) ACCESSORIES POSITION MUST MATCH - glasses must be in the EXACT same position on the face, same frame shape, hats on same position, earrings, necklaces, all accessories in identical positions 8) WHITE PIXELS MUST STAY WHITE - white clothes, white hair, white skin highlights, white accessories must remain as SOLID WHITE PIXELS, NEVER convert white areas to transparent 9) The output MUST have TRANSPARENT BACKGROUND - only areas OUTSIDE the character silhouette should be transparent, everything INSIDE the character including white parts must be solid colored pixels 10) Clean kawaii anime vector style with soft pastel colors 11) No watermark, text, signature, border, or frame anywhere',
       image: imageUrl,
       size: '2K',
     });
