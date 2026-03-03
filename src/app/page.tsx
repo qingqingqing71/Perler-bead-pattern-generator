@@ -1657,7 +1657,7 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       const cellCountX = Math.round(alignedWidth / cellSize);
       const cellCountY = Math.round(alignedHeight / cellSize);
 
-      // Step 3: Pixelate ONLY the subject (on transparent canvas)
+      // Step 3: Pixelate ONLY the subject (on 800x800 canvas, centered)
       const subjectCanvas = document.createElement('canvas');
       const subjectCtx = subjectCanvas.getContext('2d');
       
@@ -1666,8 +1666,9 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
         return;
       }
 
-      subjectCanvas.width = alignedWidth;
-      subjectCanvas.height = alignedHeight;
+      // Use 800x800 canvas for subject, so it's already centered
+      subjectCanvas.width = gridSize;
+      subjectCanvas.height = gridSize;
 
       // Track colored cells for edge detection
       const coloredCells = new Set<string>();
@@ -1704,14 +1705,15 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
             
             // Only draw if pixel has some opacity (is part of subject)
             if (avgA > 10) {
+              // Draw at centered position (offsetX, offsetY) on 800x800 canvas
               subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
               subjectCtx.fillRect(
-                gridX * cellSize,
-                gridY * cellSize,
+                offsetX + gridX * cellSize,
+                offsetY + gridY * cellSize,
                 cellSize,
                 cellSize
               );
-              // Track this cell as colored
+              // Track this cell as colored (use grid position relative to subject area)
               coloredCells.add(`${gridX},${gridY}`);
             }
           }
@@ -1868,12 +1870,61 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
 }
 
 // Draw anime image with red edge outline on transparent background
+// Draw anime image with red edge outline on transparent background, centered
 async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
+      // First, get the bounding box of the subject
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      if (!tempCtx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      tempCanvas.width = img.width;
+      tempCanvas.height = img.height;
+      tempCtx.drawImage(img, 0, 0);
+      
+      const tempImageData = tempCtx.getImageData(0, 0, img.width, img.height);
+      const tempData = tempImageData.data;
+      
+      // Find bounding box of subject
+      let minX = img.width, minY = img.height, maxX = 0, maxY = 0;
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          const idx = (y * img.width + x) * 4;
+          if (tempData[idx + 3] > 10) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+      }
+      
+      // If no subject found, return original
+      if (minX > maxX || minY > maxY) {
+        resolve(imageUrl);
+        return;
+      }
+      
+      // Add padding to bounding box
+      const padding = 10;
+      minX = Math.max(0, minX - padding);
+      minY = Math.max(0, minY - padding);
+      maxX = Math.min(img.width - 1, maxX + padding);
+      maxY = Math.min(img.height - 1, maxY + padding);
+      
+      const subjectWidth = maxX - minX + 1;
+      const subjectHeight = maxY - minY + 1;
+      
+      // Create square canvas (800x800)
+      const canvasSize = 800;
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
@@ -1882,16 +1933,31 @@ async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
         return;
       }
       
-      canvas.width = img.width;
-      canvas.height = img.height;
+      canvas.width = canvasSize;
+      canvas.height = canvasSize;
       
-      // Draw the image
-      ctx.drawImage(img, 0, 0);
+      // Calculate scale to fit subject in 90% of canvas
+      const targetSize = canvasSize * 0.9;
+      const scale = Math.min(targetSize / subjectWidth, targetSize / subjectHeight);
       
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const scaledWidth = subjectWidth * scale;
+      const scaledHeight = subjectHeight * scale;
+      
+      // Center the subject
+      const offsetX = (canvasSize - scaledWidth) / 2;
+      const offsetY = (canvasSize - scaledHeight) / 2;
+      
+      // Draw the subject centered and scaled
+      ctx.drawImage(
+        img,
+        minX, minY, subjectWidth, subjectHeight,
+        offsetX, offsetY, scaledWidth, scaledHeight
+      );
+      
+      const imageData = ctx.getImageData(0, 0, canvasSize, canvasSize);
       const data = imageData.data;
-      const width = canvas.width;
-      const height = canvas.height;
+      const width = canvasSize;
+      const height = canvasSize;
       
       // Detect subject pixels (alpha > 10)
       const subjectMask = new Uint8Array(width * height).fill(0);
@@ -1954,63 +2020,14 @@ async function drawAnimeWithEdge(imageUrl: string): Promise<string> {
       
       // Draw red edge outline
       ctx.putImageData(imageData, 0, 0); // Restore original image
-      ctx.strokeStyle = '#ef4444'; // Red color
-      ctx.lineWidth = 2;
-      ctx.beginPath();
       
-      // Find connected edge segments and draw
-      const visited = new Set<number>();
-      
+      // Draw red dots for each edge pixel
       for (let i = 0; i < width * height; i++) {
-        if (!edgePixels[i] || visited.has(i)) continue;
-        
-        // Find connected component using BFS
-        const component: number[] = [];
-        const queue = [i];
-        
-        while (queue.length > 0) {
-          const current = queue.shift()!;
-          if (visited.has(current)) continue;
-          if (!edgePixels[current]) continue;
-          
-          visited.add(current);
-          component.push(current);
-          
-          const x = current % width;
-          const y = Math.floor(current / width);
-          
-          // Check 8-connected neighbors
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (dx === 0 && dy === 0) continue;
-              const nx = x + dx;
-              const ny = y + dy;
-              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                const nIdx = ny * width + nx;
-                if (edgePixels[nIdx] && !visited.has(nIdx)) {
-                  queue.push(nIdx);
-                }
-              }
-            }
-          }
-        }
-        
-        // Draw this component
-        if (component.length > 0) {
-          // Sort by position to create a smooth path
-          component.sort((a, b) => {
-            const ax = a % width, ay = Math.floor(a / width);
-            const bx = b % width, by = Math.floor(b / width);
-            return ay - by || ax - bx;
-          });
-          
-          // Draw dots for each edge pixel
-          component.forEach(idx => {
-            const x = idx % width;
-            const y = Math.floor(idx / width);
-            ctx.fillStyle = '#ef4444';
-            ctx.fillRect(x - 1, y - 1, 3, 3);
-          });
+        if (edgePixels[i]) {
+          const x = i % width;
+          const y = Math.floor(i / width);
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(x - 1, y - 1, 3, 3);
         }
       }
       
