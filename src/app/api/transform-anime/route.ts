@@ -18,15 +18,11 @@ export async function POST(request: NextRequest) {
       ? imageBase64 
       : `data:image/png;base64,${imageBase64}`;
 
-    // 动漫主体风格化要求：
-    // 1. 只处理AI抠图出的主体，不改变形状大小
-    // 2. 不添加任何背景
-    // 3. 不填充白色、黑色
-    // 4. 不扩展画布，不变4:3
-    // 5. 保持透明背景
-    // 6. 只输出主体图片，不要多余内容
+    // 动漫风格化主体输出要求：
+    // 只对主体进行动漫化，不改变轮廓，不扩展画布，
+    // 不添加任何背景，不填充颜色，保持透明，输出PNG
     const response = await client.generate({
-      prompt: 'Anime style transfer on transparent subject. STRICT RULES: 1) Process ONLY the existing subject - do NOT change shape or size 2) NO background - keep transparent 3) NO white or black fill anywhere 4) NO canvas extension or 4:3 cropping - keep original dimensions 5) Maintain transparent background outside subject 6) Output ONLY the styled subject, nothing extra. Convert to cute chibi manga style with same pose, expression, accessories position. Input has irregular edges on transparent background - output must be identical in shape and size.',
+      prompt: 'Convert this subject to anime style. REQUIREMENTS: 1) Animate ONLY the subject 2) Do NOT change outline/contour 3) Do NOT extend canvas 4) NO background 5) NO color fill 6) Keep transparent 7) Output PNG with transparency. Same pose, expression, accessories.',
       image: imageUrl,
       size: '2K',
     });
