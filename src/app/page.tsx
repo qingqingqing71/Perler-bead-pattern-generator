@@ -590,7 +590,7 @@ export default function Home() {
                 </div>
                 {uploadMode === 'pixel' && (
                   <p className="text-xs text-slate-500 mt-2">
-                    上传已有的像素图纸，系统将直接使用像素网格生成拼豆图纸（每个像素对应一个网格单元）
+                    上传带有网格线的像素图纸，系统将自动检测网格线并划分网格，对每个网格单元填充MARD色号
                   </p>
                 )}
               </div>
@@ -659,7 +659,7 @@ export default function Home() {
                   <CheckCircle2 className="w-4 h-4" />
                   <span className="text-sm">
                     {uploadMode === 'pixel' 
-                      ? `像素图纸处理完成 - 图像尺寸 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 像素`
+                      ? `像素图纸处理完成 - 检测到 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 网格`
                       : `处理完成 - ${gridSize}×{gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
                     }
                   </span>
@@ -3223,11 +3223,96 @@ function detectGridSize(imageData: ImageData): number {
   return 0; // Could not detect
 }
 
+// Detect grid lines positions (returns array of line positions)
+function detectGridLines(imageData: ImageData): {
+  horizontalLines: number[];
+  verticalLines: number[];
+  cellWidth: number;
+  cellHeight: number;
+  gridCountX: number;
+  gridCountY: number;
+} {
+  const { width, height, data } = imageData;
+  
+  const horizontalLines: number[] = [];
+  const verticalLines: number[] = [];
+  
+  // Detect horizontal lines (rows with consistent dark pixels)
+  for (let y = 0; y < height; y++) {
+    let darkPixels = 0;
+    let totalPixels = 0;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const brightness = (r + g + b) / 3;
+      if (brightness < 50) darkPixels++;
+      totalPixels++;
+    }
+    // If more than 70% of the row is dark, it's likely a grid line
+    if (darkPixels / totalPixels > 0.7) {
+      horizontalLines.push(y);
+    }
+  }
+  
+  // Detect vertical lines (columns with consistent dark pixels)
+  for (let x = 0; x < width; x++) {
+    let darkPixels = 0;
+    let totalPixels = 0;
+    for (let y = 0; y < height; y++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const brightness = (r + g + b) / 3;
+      if (brightness < 50) darkPixels++;
+      totalPixels++;
+    }
+    if (darkPixels / totalPixels > 0.7) {
+      verticalLines.push(x);
+    }
+  }
+  
+  // Calculate cell size from line spacing
+  const calculateCellSize = (lines: number[]): { cellSize: number; count: number } => {
+    if (lines.length < 2) return { cellSize: 0, count: 0 };
+    
+    const spacings: number[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      spacings.push(lines[i] - lines[i - 1]);
+    }
+    
+    // Find median spacing
+    const sortedSpacings = [...spacings].sort((a, b) => a - b);
+    const medianSpacing = sortedSpacings[Math.floor(sortedSpacings.length / 2)];
+    
+    return { cellSize: medianSpacing, count: spacings.length };
+  };
+  
+  const hResult = calculateCellSize(horizontalLines);
+  const vResult = calculateCellSize(verticalLines);
+  
+  const cellWidth = vResult.cellSize || Math.floor(width / (verticalLines.length || 1));
+  const cellHeight = hResult.cellSize || Math.floor(height / (horizontalLines.length || 1));
+  const gridCountX = vResult.count || verticalLines.length;
+  const gridCountY = hResult.count || horizontalLines.length;
+  
+  return {
+    horizontalLines,
+    verticalLines,
+    cellWidth,
+    cellHeight,
+    gridCountX,
+    gridCountY
+  };
+}
+
 // Process pixel art image and generate bead pattern
-// Each pixel in the source image becomes one grid cell in the bead pattern
+// Detects grid lines and processes each cell
 async function processPixelArt(
   imageUrl: string,
-  gridSize: number,  // Ignored - we use image dimensions directly
+  gridSize: number,  // Ignored - auto-detected from image
   scale: number = 3
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
   return new Promise((resolve, reject) => {
@@ -3249,41 +3334,110 @@ async function processPixelArt(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
       
-      // Use image dimensions directly as grid size
-      // Take the smaller dimension to make a square grid
-      const detectedGridSize = Math.min(img.width, img.height);
+      // Detect grid lines
+      const gridInfo = detectGridLines(srcImageData);
       
-      // Calculate cell size in source image (1 pixel = 1 cell for pixel art)
-      // We read each pixel directly
-      const srcCellSizeX = 1;  // Each pixel is one cell
-      const srcCellSizeY = 1;
+      let detectedGridSize: number;
+      let cellBoundaries: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
       
-      // Identify colored cells and their colors (read each pixel directly)
+      // Check if we detected enough grid lines
+      if (gridInfo.gridCountX >= 2 && gridInfo.gridCountY >= 2) {
+        // Use detected grid lines to define cell boundaries
+        detectedGridSize = Math.min(gridInfo.gridCountX, gridInfo.gridCountY);
+        
+        // Create cell boundaries from grid lines
+        const hLines = gridInfo.horizontalLines;
+        const vLines = gridInfo.verticalLines;
+        
+        // Sort lines
+        hLines.sort((a, b) => a - b);
+        vLines.sort((a, b) => a - b);
+        
+        // Create cells between consecutive grid lines (excluding the lines themselves)
+        for (let row = 0; row < Math.min(hLines.length - 1, detectedGridSize); row++) {
+          for (let col = 0; col < Math.min(vLines.length - 1, detectedGridSize); col++) {
+            // Cell area is between grid lines, with 1-pixel margin to avoid the line
+            const x1 = vLines[col] + 1;
+            const y1 = hLines[row] + 1;
+            const x2 = vLines[col + 1] - 1;
+            const y2 = hLines[row + 1] - 1;
+            
+            if (x2 > x1 && y2 > y1) {
+              cellBoundaries.push({ x1, y1, x2, y2 });
+            }
+          }
+        }
+      } else {
+        // Fallback: no clear grid lines detected, try to estimate from image
+        // Assume the image is mostly square and divide evenly
+        detectedGridSize = detectGridSize(srcImageData) || 25;
+        
+        const cellW = Math.floor(img.width / detectedGridSize);
+        const cellH = Math.floor(img.height / detectedGridSize);
+        
+        for (let row = 0; row < detectedGridSize; row++) {
+          for (let col = 0; col < detectedGridSize; col++) {
+            cellBoundaries.push({
+              x1: col * cellW,
+              y1: row * cellH,
+              x2: (col + 1) * cellW - 1,
+              y2: (row + 1) * cellH - 1
+            });
+          }
+        }
+      }
+      
+      // Identify colored cells and their colors
       const coloredCells = new Set<string>();
       const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
-      // Read each pixel in the grid area
-      for (let cellY = 0; cellY < detectedGridSize; cellY++) {
-        for (let cellX = 0; cellX < detectedGridSize; cellX++) {
-          // Read single pixel
-          const idx = (cellY * img.width + cellX) * 4;
-          const avgR = srcData[idx];
-          const avgG = srcData[idx + 1];
-          const avgB = srcData[idx + 2];
-          const avgA = srcData[idx + 3];
+      // Process each cell boundary
+      cellBoundaries.forEach((boundary, index) => {
+        const { x1, y1, x2, y2 } = boundary;
+        
+        let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+        let pixelCount = 0;
+        
+        // Sample pixels from the cell area (excluding grid lines)
+        for (let y = y1; y <= y2; y++) {
+          for (let x = x1; x <= x2; x++) {
+            const idx = (y * img.width + x) * 4;
+            const r = srcData[idx];
+            const g = srcData[idx + 1];
+            const b = srcData[idx + 2];
+            const a = srcData[idx + 3];
+            
+            // Skip dark pixels (likely grid lines or shadows)
+            const brightness = (r + g + b) / 3;
+            if (brightness < 30) continue;
+            
+            totalR += r;
+            totalG += g;
+            totalB += b;
+            totalA += a;
+            pixelCount++;
+          }
+        }
+        
+        if (pixelCount > 0) {
+          const avgR = Math.round(totalR / pixelCount);
+          const avgG = Math.round(totalG / pixelCount);
+          const avgB = Math.round(totalB / pixelCount);
+          const avgA = Math.round(totalA / pixelCount);
           
-          // Skip transparent pixels and near-white pixels (background)
+          // Skip transparent or near-white cells (background)
           if (avgA > 10) {
             const brightness = (avgR + avgG + avgB) / 3;
-            // Skip near-white background (common in pixel art)
-            if (brightness < 250 || avgA < 255) {
-              const key = `${cellX},${cellY}`;
+            if (brightness < 240) { // Not near-white background
+              const row = Math.floor(index / detectedGridSize);
+              const col = index % detectedGridSize;
+              const key = `${col},${row}`;
               coloredCells.add(key);
               cellColors.set(key, { avgR, avgG, avgB });
             }
           }
         }
-      }
+      });
       
       // Match colors to MARD
       const colorUsageCount = new Map<string, number>();
