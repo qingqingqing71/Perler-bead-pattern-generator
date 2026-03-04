@@ -30,7 +30,7 @@ const STEP_LABELS: Record<ProcessingStep, string> = {
   'loading-model': '正在加载 AI 模型...',
   'removing-bg': '正在抠图...',
   'transforming-anime': '正在转换为动漫风格...',
-  'generating-grid': '正在生成网格纸...',
+  'generating-grid': '正在生成拼豆图纸...',
   done: '处理完成',
 };
 
@@ -66,6 +66,8 @@ export default function Home() {
   const [modelLoaded, setModelLoaded] = useState(false);
   const [uploadMode, setUploadMode] = useState<'original' | 'pixel'>('original'); // 上传模式：原图或像素图纸
   const [pixelGridSize, setPixelGridSize] = useState<number | null>(null); // 像素图纸检测到的网格数
+  const [pixelGridRows, setPixelGridRows] = useState<number>(25); // 像素图纸网格行数
+  const [pixelGridCols, setPixelGridCols] = useState<number>(25); // 像素图纸网格列数
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -192,15 +194,16 @@ export default function Home() {
       setOriginalImage(imageDataUrl);
 
       // Pixel art mode: directly process pixel art to bead pattern
-      // NO background removal, just detect grid and fill colors
+      // NO background removal, just divide grid by user parameters and fill colors
       if (uploadMode === 'pixel') {
         setStep('generating-grid');
         setProgress(30);
         
-        const result = await processPixelArt(imageDataUrl, 0); // Auto-detect grid size
+        // Use user-provided grid parameters
+        const result = await processPixelArt(imageDataUrl, pixelGridRows, pixelGridCols);
         
-        setPixelGridSize(result.detectedGridSize);
-        setGridSize(result.detectedGridSize);
+        setPixelGridSize(Math.max(pixelGridRows, pixelGridCols));
+        setGridSize(Math.max(pixelGridRows, pixelGridCols));
         setBeadPatternImage(result.image);
         setBeadPatternLegend(result.legend);
         setFinalImage(result.image);
@@ -440,11 +443,11 @@ export default function Home() {
     if (uploadMode === 'pixel') {
       if (!originalImage) return;
       try {
-        // Generate HD version with 5x scale
-        const result = await processPixelArt(originalImage, 0, 5);
+        // Generate HD version with 5x scale using user-provided grid parameters
+        const result = await processPixelArt(originalImage, pixelGridRows, pixelGridCols, 5);
         const link = document.createElement('a');
         link.href = result.image;
-        link.download = `bead-pattern-hd-${result.detectedGridSize}x${result.detectedGridSize}.png`;
+        link.download = `bead-pattern-hd-${pixelGridRows}x${pixelGridCols}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -454,7 +457,7 @@ export default function Home() {
         if (finalImage) {
           const link = document.createElement('a');
           link.href = finalImage;
-          link.download = `bead-pattern-pixel-${pixelGridSize || gridSize}x${pixelGridSize || gridSize}.png`;
+          link.download = `bead-pattern-pixel-${pixelGridRows}x${pixelGridCols}.png`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -488,7 +491,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridSize, originalImage]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridRows, pixelGridCols, originalImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -572,6 +575,48 @@ export default function Home() {
           </Card>
         )}
 
+        {/* Grid Size Input for Pixel Mode */}
+        {uploadMode === 'pixel' && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-center gap-6 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Grid3X3 className="w-5 h-5 text-purple-600" />
+                  <span className="font-medium text-slate-700 dark:text-slate-300">网格参数：</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-600 dark:text-slate-400">行数</label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="200"
+                      value={pixelGridRows}
+                      onChange={(e) => setPixelGridRows(Math.max(5, Math.min(200, parseInt(e.target.value) || 25)))}
+                      className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-center focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-slate-800"
+                    />
+                  </div>
+                  <span className="text-slate-400">×</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-600 dark:text-slate-400">列数</label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="200"
+                      value={pixelGridCols}
+                      onChange={(e) => setPixelGridCols(Math.max(5, Math.min(200, parseInt(e.target.value) || 25)))}
+                      className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-center focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-slate-800"
+                    />
+                  </div>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">
+                    (共 {pixelGridRows * pixelGridCols} 格)
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Main Content */}
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Left: Upload Area */}
@@ -607,7 +652,7 @@ export default function Home() {
                 </div>
                 {uploadMode === 'pixel' && (
                   <p className="text-xs text-slate-500 mt-2">
-                    上传带有网格线的像素图纸，系统将自动检测网格线并划分网格，对每个网格单元填充MARD色号
+                    按用户设置的网格参数均匀分割图像，对每个网格单元填充MARD色号
                   </p>
                 )}
               </div>
@@ -836,9 +881,9 @@ export default function Home() {
                     ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
                   </span>
                 )}
-                {finalImage && uploadMode === 'pixel' && pixelGridSize && (
+                {finalImage && uploadMode === 'pixel' && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    (检测到 {pixelGridSize}×{pixelGridSize} 网格)
+                    ({pixelGridRows}×{pixelGridCols} 网格)
                   </span>
                 )}
               </h2>
@@ -1103,8 +1148,8 @@ export default function Home() {
                   <span className="text-purple-600 dark:text-purple-400 font-semibold">1</span>
                 </div>
                 <div>
-                  <p className="font-medium">上传像素图纸</p>
-                  <p className="text-sm text-slate-500">选择带有网格的像素图纸</p>
+                  <p className="font-medium">设置网格参数</p>
+                  <p className="text-sm text-slate-500">输入网格的行数和列数</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -1112,8 +1157,8 @@ export default function Home() {
                   <span className="text-purple-600 dark:text-purple-400 font-semibold">2</span>
                 </div>
                 <div>
-                  <p className="font-medium">自动分割网格</p>
-                  <p className="text-sm text-slate-500">检测网格线并划分网格单元</p>
+                  <p className="font-medium">上传像素图纸</p>
+                  <p className="text-sm text-slate-500">选择像素图纸图片</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -1122,7 +1167,7 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-medium">生成拼豆图纸</p>
-                  <p className="text-sm text-slate-500">填充MARD色号并提供高清下载</p>
+                  <p className="text-sm text-slate-500">自动填充MARD色号并提供下载</p>
                 </div>
               </div>
             </div>
@@ -1182,7 +1227,7 @@ export default function Home() {
           <p className="text-sm text-blue-700 dark:text-blue-300">
             {uploadMode === 'pixel' ? (
               <>
-                <strong>提示：</strong>上传的像素图纸应包含清晰的网格线（深色线条）。系统将自动检测网格数量并对每个网格单元填充对应的 MARD 色号。
+                <strong>提示：</strong>请根据您的像素图纸设置正确的网格行数和列数，系统将按此参数均匀分割图像，并对每个网格单元填充对应的 MARD 色号。
               </>
             ) : (
               <>
@@ -3519,13 +3564,13 @@ function detectGridCountByVisualCounting(imageData: ImageData): {
   return { gridCountX, gridCountY, cellBoundaries };
 }
 
-// Detect grid lines positions (returns array of line positions)
 // Process pixel art image and generate bead pattern
-// Uses visual counting + grid line segment verification to detect grid count
+// Uses user-provided grid parameters to divide the image
 // NO background removal, fills ALL cells with MARD colors
 async function processPixelArt(
   imageUrl: string,
-  _gridSize: number,  // Ignored - auto-detected from image
+  gridRows: number,   // User-provided row count
+  gridCols: number,   // User-provided column count
   scale: number = 3
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
   return new Promise((resolve, reject) => {
@@ -3547,31 +3592,26 @@ async function processPixelArt(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
       
-      // Use visual counting + grid line segment verification to detect grid count
-      const gridInfo = detectGridCountByVisualCounting(srcImageData);
-      
-      const gridCountX = gridInfo.gridCountX;
-      const gridCountY = gridInfo.gridCountY;
+      // Use user-provided grid parameters
+      const gridCountY = gridRows;
+      const gridCountX = gridCols;
       const detectedGridSize = Math.max(gridCountX, gridCountY);
       
-      // Use the cell boundaries from detection
-      const cellBoundaries = gridInfo.cellBoundaries;
+      // Calculate cell size and create evenly divided cells
+      const cellW = Math.floor(img.width / gridCountX);
+      const cellH = Math.floor(img.height / gridCountY);
       
-      // If no boundaries detected, create evenly divided cells
-      if (cellBoundaries.length === 0) {
-        const cellW = Math.floor(img.width / gridCountX);
-        const cellH = Math.floor(img.height / gridCountY);
-        
-        for (let row = 0; row < gridCountY; row++) {
-          for (let col = 0; col < gridCountX; col++) {
-            cellBoundaries.push({
-              row, col,
-              x1: col * cellW,
-              y1: row * cellH,
-              x2: (col + 1) * cellW - 1,
-              y2: (row + 1) * cellH - 1
-            });
-          }
+      const cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
+      
+      for (let row = 0; row < gridCountY; row++) {
+        for (let col = 0; col < gridCountX; col++) {
+          cellBoundaries.push({
+            row, col,
+            x1: col * cellW,
+            y1: row * cellH,
+            x2: (col + 1) * cellW - 1,
+            y2: (row + 1) * cellH - 1
+          });
         }
       }
       
