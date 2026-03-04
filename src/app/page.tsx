@@ -590,7 +590,7 @@ export default function Home() {
                 </div>
                 {uploadMode === 'pixel' && (
                   <p className="text-xs text-slate-500 mt-2">
-                    上传已有的像素图纸，系统将自动识别网格并填充MARD色号
+                    上传已有的像素图纸，系统将直接使用像素网格生成拼豆图纸（每个像素对应一个网格单元）
                   </p>
                 )}
               </div>
@@ -659,7 +659,7 @@ export default function Home() {
                   <CheckCircle2 className="w-4 h-4" />
                   <span className="text-sm">
                     {uploadMode === 'pixel' 
-                      ? `像素图纸处理完成 - 检测到 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 网格`
+                      ? `像素图纸处理完成 - 图像尺寸 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 像素`
                       : `处理完成 - ${gridSize}×{gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
                     }
                   </span>
@@ -3224,9 +3224,10 @@ function detectGridSize(imageData: ImageData): number {
 }
 
 // Process pixel art image and generate bead pattern
+// Each pixel in the source image becomes one grid cell in the bead pattern
 async function processPixelArt(
   imageUrl: string,
-  gridSize: number,
+  gridSize: number,  // Ignored - we use image dimensions directly
   scale: number = 3
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
   return new Promise((resolve, reject) => {
@@ -3248,54 +3249,34 @@ async function processPixelArt(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
       
-      // Auto-detect grid size if not provided
-      let detectedGridSize = gridSize;
-      if (gridSize === 0) {
-        detectedGridSize = detectGridSize(srcImageData);
-        if (detectedGridSize === 0) {
-          // Default to 25 if detection fails
-          detectedGridSize = 25;
-        }
-      }
+      // Use image dimensions directly as grid size
+      // Take the smaller dimension to make a square grid
+      const detectedGridSize = Math.min(img.width, img.height);
       
-      // Calculate cell size in source image
-      const srcCellSizeX = img.width / detectedGridSize;
-      const srcCellSizeY = img.height / detectedGridSize;
+      // Calculate cell size in source image (1 pixel = 1 cell for pixel art)
+      // We read each pixel directly
+      const srcCellSizeX = 1;  // Each pixel is one cell
+      const srcCellSizeY = 1;
       
-      // Identify colored cells and their colors
+      // Identify colored cells and their colors (read each pixel directly)
       const coloredCells = new Set<string>();
       const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
+      // Read each pixel in the grid area
       for (let cellY = 0; cellY < detectedGridSize; cellY++) {
         for (let cellX = 0; cellX < detectedGridSize; cellX++) {
-          const startX = Math.floor(cellX * srcCellSizeX);
-          const startY = Math.floor(cellY * srcCellSizeY);
-          const endX = Math.floor((cellX + 1) * srcCellSizeX);
-          const endY = Math.floor((cellY + 1) * srcCellSizeY);
+          // Read single pixel
+          const idx = (cellY * img.width + cellX) * 4;
+          const avgR = srcData[idx];
+          const avgG = srcData[idx + 1];
+          const avgB = srcData[idx + 2];
+          const avgA = srcData[idx + 3];
           
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
-          
-          for (let y = startY; y < endY && y < img.height; y++) {
-            for (let x = startX; x < endX && x < img.width; x++) {
-              const idx = (y * img.width + x) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              totalA += srcData[idx + 3];
-              pixelCount++;
-            }
-          }
-          
-          if (pixelCount > 0) {
-            const avgR = Math.round(totalR / pixelCount);
-            const avgG = Math.round(totalG / pixelCount);
-            const avgB = Math.round(totalB / pixelCount);
-            const avgA = Math.round(totalA / pixelCount);
-            
-            // Skip grid lines (dark lines) and background (transparent or white)
+          // Skip transparent pixels and near-white pixels (background)
+          if (avgA > 10) {
             const brightness = (avgR + avgG + avgB) / 3;
-            if (avgA > 10 && brightness > 30) { // Not a grid line and not transparent
+            // Skip near-white background (common in pixel art)
+            if (brightness < 250 || avgA < 255) {
               const key = `${cellX},${cellY}`;
               coloredCells.add(key);
               cellColors.set(key, { avgR, avgG, avgB });
