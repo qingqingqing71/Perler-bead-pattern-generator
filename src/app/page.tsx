@@ -3309,7 +3309,7 @@ function detectGridLines(imageData: ImageData): {
 }
 
 // Process pixel art image and generate bead pattern
-// Detects grid lines and processes each cell
+// Detects grid lines and processes each cell - NO background removal, fills ALL cells
 async function processPixelArt(
   imageUrl: string,
   gridSize: number,  // Ignored - auto-detected from image
@@ -3338,7 +3338,7 @@ async function processPixelArt(
       const gridInfo = detectGridLines(srcImageData);
       
       let detectedGridSize: number;
-      let cellBoundaries: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+      let cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
       
       // Check if we detected enough grid lines
       if (gridInfo.gridCountX >= 2 && gridInfo.gridCountY >= 2) {
@@ -3363,7 +3363,7 @@ async function processPixelArt(
             const y2 = hLines[row + 1] - 1;
             
             if (x2 > x1 && y2 > y1) {
-              cellBoundaries.push({ x1, y1, x2, y2 });
+              cellBoundaries.push({ row, col, x1, y1, x2, y2 });
             }
           }
         }
@@ -3378,6 +3378,7 @@ async function processPixelArt(
         for (let row = 0; row < detectedGridSize; row++) {
           for (let col = 0; col < detectedGridSize; col++) {
             cellBoundaries.push({
+              row, col,
               x1: col * cellW,
               y1: row * cellH,
               x2: (col + 1) * cellW - 1,
@@ -3387,15 +3388,14 @@ async function processPixelArt(
         }
       }
       
-      // Identify colored cells and their colors
-      const coloredCells = new Set<string>();
+      // Process ALL cells - NO background removal
       const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
-      // Process each cell boundary
-      cellBoundaries.forEach((boundary, index) => {
-        const { x1, y1, x2, y2 } = boundary;
+      // Process each cell boundary - fill ALL cells
+      cellBoundaries.forEach((boundary) => {
+        const { row, col, x1, y1, x2, y2 } = boundary;
         
-        let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+        let totalR = 0, totalG = 0, totalB = 0;
         let pixelCount = 0;
         
         // Sample pixels from the cell area (excluding grid lines)
@@ -3405,46 +3405,31 @@ async function processPixelArt(
             const r = srcData[idx];
             const g = srcData[idx + 1];
             const b = srcData[idx + 2];
-            const a = srcData[idx + 3];
             
-            // Skip dark pixels (likely grid lines or shadows)
-            const brightness = (r + g + b) / 3;
-            if (brightness < 30) continue;
-            
+            // Count all pixels, including dark ones (no skipping)
             totalR += r;
             totalG += g;
             totalB += b;
-            totalA += a;
             pixelCount++;
           }
         }
         
+        // Calculate average color for this cell
         if (pixelCount > 0) {
           const avgR = Math.round(totalR / pixelCount);
           const avgG = Math.round(totalG / pixelCount);
           const avgB = Math.round(totalB / pixelCount);
-          const avgA = Math.round(totalA / pixelCount);
           
-          // Skip transparent or near-white cells (background)
-          if (avgA > 10) {
-            const brightness = (avgR + avgG + avgB) / 3;
-            if (brightness < 240) { // Not near-white background
-              const row = Math.floor(index / detectedGridSize);
-              const col = index % detectedGridSize;
-              const key = `${col},${row}`;
-              coloredCells.add(key);
-              cellColors.set(key, { avgR, avgG, avgB });
-            }
-          }
+          const key = `${col},${row}`;
+          cellColors.set(key, { avgR, avgG, avgB });
         }
       });
       
-      // Match colors to MARD
+      // Match ALL colors to MARD
       const colorUsageCount = new Map<string, number>();
       const mardColorMap = new Map<string, MardColor>();
       
-      for (const key of coloredCells) {
-        const color = cellColors.get(key)!;
+      for (const [key, color] of cellColors) {
         const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
         mardColorMap.set(key, mardColor);
         const count = colorUsageCount.get(mardColor.code) || 0;
@@ -3508,7 +3493,7 @@ async function processPixelArt(
       const offsetX = marginSize;
       const offsetY = marginSize;
       
-      // Draw colored cells with MARD colors
+      // Draw ALL cells with MARD colors
       const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
       const drawnBlocks: Array<{
         x: number;
@@ -3522,15 +3507,16 @@ async function processPixelArt(
       const finalColorCount = new Map<string, number>();
       const colorMap = new Map<string, MardColor>();
       
-      for (const key of coloredCells) {
+      // Process ALL cells
+      for (const [key, srcColor] of cellColors) {
         const [gridX, gridY] = key.split(',').map(Number);
         const x = offsetX + gridX * cellSize;
         const y = offsetY + gridY * cellSize;
         
         let mardColor = mardColorMap.get(key)!;
         
+        // If color not in selected colors, find closest
         if (!selectedColorCodes.has(mardColor.code)) {
-          const srcColor = cellColors.get(key)!;
           let minDist = Infinity;
           for (const color of selectedColors) {
             const rgb = hexToRgb(color.hex);
