@@ -1640,10 +1640,10 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
       const gridSize = 800;
       const cellSize = gridSize / gridCount;
       
-      // Area = grid size² * 0.9, keep aspect ratio
-      const targetArea = gridSize * gridSize * 0.9;
-      const originalArea = imgWidth * imgHeight;
-      const scaleFactor = Math.sqrt(targetArea / originalArea);
+      // Max dimension (width or height) = grid size * 0.9, keep aspect ratio
+      const maxDimension = Math.max(imgWidth, imgHeight);
+      const targetMaxSize = gridSize * 0.9;
+      const scaleFactor = targetMaxSize / maxDimension;
       
       // Align size to grid cells
       const alignedWidth = Math.round(imgWidth * scaleFactor / cellSize) * cellSize;
