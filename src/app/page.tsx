@@ -3542,37 +3542,85 @@ async function processPixelArt(
       // Process ALL cells - NO background removal
       const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
+      // Helper: check if a color is likely a grid line (dark color)
+      const isGridLineColor = (r: number, g: number, b: number): boolean => {
+        const brightness = (r + g + b) / 3;
+        const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+        // Grid lines are usually dark (low brightness) and grayish (low saturation)
+        return brightness < 60 && saturation < 50;
+      };
+      
+      // Helper: calculate median of an array
+      const median = (arr: number[]): number => {
+        if (arr.length === 0) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      };
+      
       // Process each cell boundary - fill ALL cells
       cellBoundaries.forEach((boundary) => {
         const { row, col, x1, y1, x2, y2 } = boundary;
         
-        let totalR = 0, totalG = 0, totalB = 0;
-        let pixelCount = 0;
+        // Collect all colors in the cell (excluding grid line colors)
+        const reds: number[] = [];
+        const greens: number[] = [];
+        const blues: number[] = [];
         
-        // Sample pixels from the cell area (excluding grid lines)
-        for (let y = y1; y <= y2; y++) {
-          for (let x = x1; x <= x2; x++) {
+        // Sample from center area of the cell to avoid grid lines at edges
+        const margin = Math.max(1, Math.floor((x2 - x1) * 0.1)); // 10% margin from edges
+        const sampleX1 = x1 + margin;
+        const sampleX2 = x2 - margin;
+        const sampleY1 = y1 + margin;
+        const sampleY2 = y2 - margin;
+        
+        for (let y = sampleY1; y <= sampleY2; y++) {
+          for (let x = sampleX1; x <= sampleX2; x++) {
             const idx = (y * img.width + x) * 4;
             const r = srcData[idx];
             const g = srcData[idx + 1];
             const b = srcData[idx + 2];
             
-            // Count all pixels, including dark ones (no skipping)
-            totalR += r;
-            totalG += g;
-            totalB += b;
-            pixelCount++;
+            // Skip grid line colors (dark gray/black pixels)
+            if (isGridLineColor(r, g, b)) continue;
+            
+            reds.push(r);
+            greens.push(g);
+            blues.push(b);
           }
         }
         
-        // Calculate average color for this cell
-        if (pixelCount > 0) {
-          const avgR = Math.round(totalR / pixelCount);
-          const avgG = Math.round(totalG / pixelCount);
-          const avgB = Math.round(totalB / pixelCount);
+        // If we have valid pixels, calculate median color (more robust than average)
+        if (reds.length > 0) {
+          const avgR = median(reds);
+          const avgG = median(greens);
+          const avgB = median(blues);
           
           const key = `${col},${row}`;
           cellColors.set(key, { avgR, avgG, avgB });
+        } else {
+          // Fallback: use all pixels if no non-grid-line pixels found
+          let totalR = 0, totalG = 0, totalB = 0;
+          let pixelCount = 0;
+          
+          for (let y = y1; y <= y2; y++) {
+            for (let x = x1; x <= x2; x++) {
+              const idx = (y * img.width + x) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              pixelCount++;
+            }
+          }
+          
+          if (pixelCount > 0) {
+            const key = `${col},${row}`;
+            cellColors.set(key, {
+              avgR: Math.round(totalR / pixelCount),
+              avgG: Math.round(totalG / pixelCount),
+              avgB: Math.round(totalB / pixelCount)
+            });
+          }
         }
       });
       
