@@ -530,7 +530,12 @@ export default function Home() {
             上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
           <div className="mt-4 inline-flex items-center gap-2">
-            {modelLoaded ? (
+            {uploadMode === 'pixel' ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span className="text-sm text-purple-600 dark:text-purple-400">像素图纸模式 - 设置网格参数后上传图片</span>
+              </>
+            ) : modelLoaded ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
                 <span className="text-sm text-green-600 dark:text-green-400">准备就绪，点击上传照片开始</span>
@@ -721,8 +726,8 @@ export default function Home() {
                   <CheckCircle2 className="w-4 h-4" />
                   <span className="text-sm">
                     {uploadMode === 'pixel' 
-                      ? `像素图纸处理完成 - 检测到 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 网格`
-                      : `处理完成 - ${gridSize}×{gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
+                      ? `像素图纸处理完成 - ${pixelGridRows}×${pixelGridCols} 网格`
+                      : `处理完成 - ${gridSize}×${gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
                     }
                   </span>
                 </div>
