@@ -3176,8 +3176,7 @@ async function generateBeadPatternHD(
   });
 }
 
-// Detect grid count using visual counting + grid line segment verification
-// This method counts grid cells by analyzing the pattern of grid lines
+// Advanced grid detection using edge detection + projection analysis + periodicity validation
 function detectGridCountByVisualCounting(imageData: ImageData): {
   gridCountX: number;
   gridCountY: number;
@@ -3185,9 +3184,29 @@ function detectGridCountByVisualCounting(imageData: ImageData): {
 } {
   const { width, height, data } = imageData;
   
-  // Step 1: Detect potential grid lines (rows/columns with dark pixels)
-  const detectPotentialLines = (isHorizontal: boolean): number[] => {
-    const lines: number[] = [];
+  // Step 1: Calculate adaptive threshold for grid line detection
+  // Grid lines are typically darker than the average of the image
+  const calculateAdaptiveThreshold = (): number => {
+    let totalBrightness = 0;
+    const sampleSize = Math.min(width * height, 10000);
+    const step = Math.floor(width * height / sampleSize);
+    
+    for (let i = 0; i < width * height; i += step) {
+      const idx = i * 4;
+      const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+      totalBrightness += brightness;
+    }
+    
+    const avgBrightness = totalBrightness / Math.ceil((width * height) / step);
+    // Grid lines are typically darker than average - use a threshold below the average
+    return Math.min(avgBrightness * 0.7, 80);
+  };
+  
+  const threshold = calculateAdaptiveThreshold();
+  
+  // Step 2: Projection analysis - count dark pixels in each row/column
+  const calculateProjection = (isHorizontal: boolean): number[] => {
+    const projection: number[] = [];
     const length = isHorizontal ? height : width;
     const lineLength = isHorizontal ? width : height;
     
@@ -3197,118 +3216,225 @@ function detectGridCountByVisualCounting(imageData: ImageData): {
         const idx = isHorizontal 
           ? (i * width + j) * 4 
           : (j * width + i) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const brightness = (r + g + b) / 3;
-        if (brightness < 60) darkCount++;
+        const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+        if (brightness < threshold) darkCount++;
       }
-      // If more than 60% dark, consider it a potential grid line
-      if (darkCount / lineLength > 0.6) {
-        lines.push(i);
-      }
+      projection.push(darkCount);
     }
-    return lines;
+    return projection;
   };
   
-  // Step 2: Group consecutive line positions (grid lines can be multiple pixels thick)
-  const groupConsecutiveLines = (lines: number[]): number[][] => {
-    if (lines.length === 0) return [];
-    const groups: number[][] = [];
-    let currentGroup = [lines[0]];
+  // Step 3: Find peaks in projection (grid line positions)
+  // A peak represents a row/column that has many dark pixels (likely a grid line)
+  const findPeaks = (projection: number[]): number[] => {
+    const peaks: number[] = [];
+    const threshold_ratio = 0.5; // A line is a peak if it has more than 50% dark pixels
+    const lineLength = projection.length > 0 ? Math.max(...projection) : 0;
+    const peakThreshold = lineLength * threshold_ratio;
     
-    for (let i = 1; i < lines.length; i++) {
-      if (lines[i] - lines[i - 1] <= 3) {
-        currentGroup.push(lines[i]);
-      } else {
-        groups.push(currentGroup);
-        currentGroup = [lines[i]];
+    // Find local maxima above threshold
+    for (let i = 1; i < projection.length - 1; i++) {
+      if (projection[i] >= peakThreshold &&
+          projection[i] >= projection[i - 1] &&
+          projection[i] >= projection[i + 1]) {
+        peaks.push(i);
       }
     }
-    groups.push(currentGroup);
+    
+    // Also include the first and last positions if they meet the threshold
+    if (projection[0] >= peakThreshold) peaks.unshift(0);
+    if (projection[projection.length - 1] >= peakThreshold) peaks.push(projection.length - 1);
+    
+    return peaks;
+  };
+  
+  // Step 4: Group nearby peaks (grid lines can be multiple pixels thick)
+  const groupPeaks = (peaks: number[], maxGap: number = 5): number[][] => {
+    if (peaks.length === 0) return [];
+    
+    const sorted = [...peaks].sort((a, b) => a - b);
+    const groups: number[][] = [[sorted[0]]];
+    
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] - sorted[i - 1] <= maxGap) {
+        groups[groups.length - 1].push(sorted[i]);
+      } else {
+        groups.push([sorted[i]]);
+      }
+    }
+    
     return groups;
   };
   
-  // Step 3: Calculate representative position for each line group (center of the line)
-  const getLinePositions = (groups: number[][]): number[] => {
+  // Step 5: Calculate center position for each peak group
+  const getPeakCenters = (groups: number[][]): number[] => {
     return groups.map(group => Math.round(group.reduce((a, b) => a + b, 0) / group.length));
   };
   
-  // Step 4: Validate grid lines by checking spacing consistency
-  const validateAndCountGrids = (linePositions: number[], totalLength: number): { 
-    count: number; 
-    validLines: number[] 
+  // Step 6: Analyze periodicity of grid lines
+  // Returns the most likely spacing between grid lines
+  const analyzePeriodicity = (positions: number[], totalLength: number): {
+    spacing: number;
+    count: number;
+    validPositions: number[];
   } => {
-    if (linePositions.length < 2) return { count: 0, validLines: linePositions };
+    if (positions.length < 2) {
+      return { spacing: 0, count: 0, validPositions: positions };
+    }
     
-    // Calculate spacings between consecutive lines
+    // Calculate all spacings
     const spacings: number[] = [];
-    for (let i = 1; i < linePositions.length; i++) {
-      spacings.push(linePositions[i] - linePositions[i - 1]);
+    for (let i = 1; i < positions.length; i++) {
+      spacings.push(positions[i] - positions[i - 1]);
     }
     
-    // Find the most common spacing (mode)
-    const spacingCounts = new Map<number, number>();
+    // Find the most common spacing using histogram
+    const spacingHistogram = new Map<number, number>();
     spacings.forEach(s => {
-      const rounded = Math.round(s);
-      spacingCounts.set(rounded, (spacingCounts.get(rounded) || 0) + 1);
+      // Round to nearest 5 pixels for tolerance
+      const rounded = Math.round(s / 5) * 5;
+      spacingHistogram.set(rounded, (spacingHistogram.get(rounded) || 0) + 1);
     });
     
-    let maxCount = 0;
-    let commonSpacing = 0;
-    spacingCounts.forEach((count, spacing) => {
-      if (count > maxCount) {
-        maxCount = count;
-        commonSpacing = spacing;
-      }
-    });
+    // Get top 3 most common spacings
+    const sortedSpacings = Array.from(spacingHistogram.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
     
-    // Allow 10% tolerance for spacing variations
-    const tolerance = commonSpacing * 0.1;
+    if (sortedSpacings.length === 0) {
+      return { spacing: 0, count: 0, validPositions: positions };
+    }
     
-    // Validate lines: keep lines that form consistent spacing
-    const validLines: number[] = [linePositions[0]];
-    for (let i = 1; i < linePositions.length; i++) {
-      const spacing = linePositions[i] - validLines[validLines.length - 1];
-      if (Math.abs(spacing - commonSpacing) <= tolerance || 
-          Math.abs(spacing - commonSpacing * 2) <= tolerance) {
-        // Accept if spacing matches or is close to double (skipped line)
-        validLines.push(linePositions[i]);
+    // Use the most common spacing
+    const primarySpacing = sortedSpacings[0][0];
+    
+    // Validate: check if this spacing is consistent
+    const tolerance = primarySpacing * 0.15; // 15% tolerance
+    
+    // Rebuild valid positions based on consistent spacing
+    const validPositions: number[] = [positions[0]];
+    let lastValidPos = positions[0];
+    
+    for (let i = 1; i < positions.length; i++) {
+      const gap = positions[i] - lastValidPos;
+      // Check if gap matches the expected spacing (or multiple of it)
+      const multiples = [1, 2, 3]; // Allow for 1x, 2x, 3x spacing
+      const isConsistent = multiples.some(m => 
+        Math.abs(gap - primarySpacing * m) <= tolerance
+      );
+      
+      if (isConsistent) {
+        validPositions.push(positions[i]);
+        lastValidPos = positions[i];
       }
     }
     
-    // Grid count = number of spaces between lines
-    const gridCount = validLines.length > 1 ? validLines.length - 1 : 0;
+    // Calculate grid count
+    const gridCount = validPositions.length > 1 ? validPositions.length - 1 : 0;
     
-    return { count: gridCount, validLines };
+    return {
+      spacing: primarySpacing,
+      count: gridCount,
+      validPositions
+    };
   };
   
-  // Process horizontal and vertical lines
-  const hPotentialLines = detectPotentialLines(true);
-  const vPotentialLines = detectPotentialLines(false);
+  // Step 7: Alternative detection using color frequency analysis
+  // This helps detect grid size from pixel art without explicit grid lines
+  const detectGridByColorFrequency = (): { gridCountX: number; gridCountY: number } | null => {
+    // Sample colors at regular intervals
+    const sampleColors = (stepX: number, stepY: number): Map<string, number> => {
+      const colors = new Map<string, number>();
+      
+      for (let y = stepY / 2; y < height; y += stepY) {
+        for (let x = stepX / 2; x < width; x += stepX) {
+          const idx = (Math.floor(y) * width + Math.floor(x)) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const colorKey = `${Math.round(r / 16) * 16},${Math.round(g / 16) * 16},${Math.round(b / 16) * 16}`;
+          colors.set(colorKey, (colors.get(colorKey) || 0) + 1);
+        }
+      }
+      
+      return colors;
+    };
+    
+    // Try different grid sizes and find the one with most color consistency
+    const candidates = [10, 12, 15, 16, 20, 24, 25, 32, 40, 48, 50, 52, 64, 80, 100];
+    let bestGridSize = 0;
+    let bestScore = 0;
+    
+    for (const gridSize of candidates) {
+      const cellW = width / gridSize;
+      const cellH = height / gridSize;
+      
+      if (cellW < 2 || cellH < 2) continue;
+      
+      const colors = sampleColors(cellW, cellH);
+      
+      // Score based on color diversity (fewer unique colors = more consistent grid)
+      const totalSamples = colors.size > 0 ? Array.from(colors.values()).reduce((a, b) => a + b, 0) : 0;
+      const uniqueColors = colors.size;
+      
+      // A good grid should have repeated colors (not too many unique colors per cell)
+      if (totalSamples > 0) {
+        const score = totalSamples / (uniqueColors + 1);
+        if (score > bestScore) {
+          bestScore = score;
+          bestGridSize = gridSize;
+        }
+      }
+    }
+    
+    return bestGridSize > 0 ? { gridCountX: bestGridSize, gridCountY: bestGridSize } : null;
+  };
   
-  const hGroups = groupConsecutiveLines(hPotentialLines);
-  const vGroups = groupConsecutiveLines(vPotentialLines);
+  // Process horizontal and vertical projections
+  const hProjection = calculateProjection(true);
+  const vProjection = calculateProjection(false);
   
-  const hLinePositions = getLinePositions(hGroups);
-  const vLinePositions = getLinePositions(vGroups);
+  const hPeaks = findPeaks(hProjection);
+  const vPeaks = findPeaks(vProjection);
   
-  const hResult = validateAndCountGrids(hLinePositions, height);
-  const vResult = validateAndCountGrids(vLinePositions, width);
+  const hGroups = groupPeaks(hPeaks);
+  const vGroups = groupPeaks(vPeaks);
   
-  const gridCountY = hResult.count || 1;
-  const gridCountX = vResult.count || 1;
+  const hPositions = getPeakCenters(hGroups);
+  const vPositions = getPeakCenters(vGroups);
   
-  // Step 5: Generate cell boundaries
+  const hResult = analyzePeriodicity(hPositions, height);
+  const vResult = analyzePeriodicity(vPositions, width);
+  
+  let gridCountY = hResult.count;
+  let gridCountX = vResult.count;
+  
+  // If grid detection failed, try color frequency analysis
+  if (gridCountX < 2 || gridCountY < 2) {
+    const altResult = detectGridByColorFrequency();
+    if (altResult) {
+      gridCountX = altResult.gridCountX;
+      gridCountY = altResult.gridCountY;
+    }
+  }
+  
+  // Ensure minimum grid count
+  gridCountX = Math.max(gridCountX, 1);
+  gridCountY = Math.max(gridCountY, 1);
+  
+  // Generate cell boundaries
   const cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
   
-  // If we have valid grid lines, use them to define cells
-  if (hResult.validLines.length >= 2 && vResult.validLines.length >= 2) {
-    const hLines = hResult.validLines;
-    const vLines = vResult.validLines;
+  // If we have valid grid line positions, use them
+  if (hResult.validPositions.length >= 2 && vResult.validPositions.length >= 2) {
+    const hLines = hResult.validPositions.sort((a, b) => a - b);
+    const vLines = vResult.validPositions.sort((a, b) => a - b);
     
-    for (let row = 0; row < gridCountY; row++) {
-      for (let col = 0; col < gridCountX; col++) {
+    const actualGridCountY = Math.min(hLines.length - 1, gridCountY);
+    const actualGridCountX = Math.min(vLines.length - 1, gridCountX);
+    
+    for (let row = 0; row < actualGridCountY; row++) {
+      for (let col = 0; col < actualGridCountX; col++) {
         const x1 = vLines[col] + 1;
         const y1 = hLines[row] + 1;
         const x2 = vLines[col + 1] - 1;
@@ -3319,8 +3445,10 @@ function detectGridCountByVisualCounting(imageData: ImageData): {
         }
       }
     }
-  } else {
-    // Fallback: divide image evenly
+  }
+  
+  // Fallback: divide evenly if no valid boundaries
+  if (cellBoundaries.length === 0) {
     const cellW = Math.floor(width / gridCountX);
     const cellH = Math.floor(height / gridCountY);
     
