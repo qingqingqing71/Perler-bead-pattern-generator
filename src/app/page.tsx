@@ -30,7 +30,7 @@ const STEP_LABELS: Record<ProcessingStep, string> = {
   'loading-model': '正在加载 AI 模型...',
   'removing-bg': '正在抠图...',
   'transforming-anime': '正在转换为动漫风格...',
-  'generating-grid': '正在生成拼豆图纸...',
+  'generating-grid': '正在生成网格纸...',
   done: '处理完成',
 };
 
@@ -64,10 +64,6 @@ export default function Home() {
   const [beadPatternLegend, setBeadPatternLegend] = useState<Array<MardColor & { count: number }>>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
   const [modelLoaded, setModelLoaded] = useState(false);
-  const [uploadMode, setUploadMode] = useState<'original' | 'pixel'>('original'); // 上传模式：原图或像素图纸
-  const [pixelGridSize, setPixelGridSize] = useState<number | null>(null); // 像素图纸检测到的网格数
-  const [pixelGridRows, setPixelGridRows] = useState<number>(25); // 像素图纸网格行数
-  const [pixelGridCols, setPixelGridCols] = useState<number>(25); // 像素图纸网格列数
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -120,32 +116,9 @@ export default function Home() {
     loadModel();
   }, []);
 
-  // Reset state when upload mode changes
-  useEffect(() => {
-    // Reset all state when mode changes
-    setOriginalImage(null);
-    setRemovedBgImage(null);
-    setRemovedBgWithEdge(null);
-    setAnimeImage(null);
-    setAnimeWithEdge(null);
-    setFinalImage(null);
-    setUseAnimeImage(false);
-    setProgress(0);
-    setError(null);
-    setStep('idle');
-    setPixelatedImage(null);
-    setPixelatedSubject(null);
-    setBeadPatternImage(null);
-    setBeadPatternLegend([]);
-    setPixelGridSize(null);
-  }, [uploadMode]);
-
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    // Original mode requires model, pixel mode doesn't
-    const canProceed = uploadMode === 'pixel' || modelLoaded;
-    
-    if ((step === 'idle' || step === 'done') && canProceed) {
+    if ((step === 'idle' || step === 'done') && modelLoaded) {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -156,11 +129,6 @@ export default function Home() {
         setUseAnimeImage(false);
         setProgress(0);
         setError(null);
-        setPixelatedImage(null);
-        setPixelatedSubject(null);
-        setBeadPatternImage(null);
-        setBeadPatternLegend([]);
-        setPixelGridSize(null);
       }
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -181,11 +149,6 @@ export default function Home() {
     setAnimeImage(null);
     setAnimeWithEdge(null);
     setUseAnimeImage(false);
-    setPixelatedImage(null);
-    setPixelatedSubject(null);
-    setBeadPatternImage(null);
-    setBeadPatternLegend([]);
-    setPixelGridSize(null);
 
     try {
       setStep('uploading');
@@ -193,28 +156,6 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
-      // Pixel art mode: directly process pixel art to bead pattern
-      // NO background removal, just divide grid by user parameters and fill colors
-      if (uploadMode === 'pixel') {
-        setStep('generating-grid');
-        setProgress(30);
-        
-        // Use user-provided grid parameters
-        const result = await processPixelArt(imageDataUrl, pixelGridRows, pixelGridCols);
-        
-        setPixelGridSize(Math.max(pixelGridRows, pixelGridCols));
-        setGridSize(Math.max(pixelGridRows, pixelGridCols));
-        setBeadPatternImage(result.image);
-        setBeadPatternLegend(result.legend);
-        setFinalImage(result.image);
-        // Keep original as reference (no background removal needed)
-        
-        setStep('done');
-        setProgress(100);
-        return;
-      }
-
-      // Original mode: AI background removal
       setStep('loading-model');
       setProgress(20);
       
@@ -439,39 +380,12 @@ export default function Home() {
   }, [pixelatedImage, gridSize, animeImage]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    // Pixel art mode: regenerate with HD scale for download
-    if (uploadMode === 'pixel') {
-      if (!originalImage) return;
-      try {
-        // Generate HD version with 5x scale using user-provided grid parameters
-        const result = await processPixelArt(originalImage, pixelGridRows, pixelGridCols, 5);
-        const link = document.createElement('a');
-        link.href = result.image;
-        link.download = `bead-pattern-hd-${pixelGridRows}x${pixelGridCols}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (err) {
-        console.error('HD download error:', err);
-        // Fallback to current image
-        if (finalImage) {
-          const link = document.createElement('a');
-          link.href = finalImage;
-          link.download = `bead-pattern-pixel-${pixelGridRows}x${pixelGridCols}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
-      }
-      return;
-    }
-
-    // Original mode: Use pixelated subject (transparent background) directly
+    // Use pixelated subject (transparent background) directly
     if (!pixelatedSubject) return;
 
     try {
-      // Generate high-resolution bead pattern (5x scale for HD quality)
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 5);
+      // Generate high-resolution bead pattern (3x scale for better readability)
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -491,7 +405,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridRows, pixelGridCols, originalImage]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -513,7 +427,7 @@ export default function Home() {
     }
   }, []);
 
-  const canUpload = (step === 'idle' || step === 'done') && (uploadMode === 'pixel' || modelLoaded);
+  const canUpload = (step === 'idle' || step === 'done') && modelLoaded;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -530,12 +444,7 @@ export default function Home() {
             上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
           <div className="mt-4 inline-flex items-center gap-2">
-            {uploadMode === 'pixel' ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span className="text-sm text-purple-600 dark:text-purple-400">像素图纸模式 - 设置网格参数后上传图片</span>
-              </>
-            ) : modelLoaded ? (
+            {modelLoaded ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
                 <span className="text-sm text-green-600 dark:text-green-400">准备就绪，点击上传照片开始</span>
@@ -549,78 +458,34 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Grid Size Selector - Only show for original mode */}
-        {uploadMode === 'original' && (
-          <Card className="mb-6">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Grid3X3 className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {GRID_OPTIONS.map((option) => (
-                    <Button
-                      key={option.value}
-                      variant={gridSize === option.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => handleGridSizeChange(option.value)}
-                      className={`min-w-[80px] ${
-                        gridSize === option.value 
-                          ? 'bg-blue-600 hover:bg-blue-700' 
-                          : ''
-                      }`}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
+        {/* Grid Size Selector */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Grid3X3 className="w-5 h-5 text-blue-600" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
               </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Grid Size Input for Pixel Mode */}
-        {uploadMode === 'pixel' && (
-          <Card className="mb-6">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-center gap-6 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Grid3X3 className="w-5 h-5 text-purple-600" />
-                  <span className="font-medium text-slate-700 dark:text-slate-300">网格参数：</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-slate-600 dark:text-slate-400">行数</label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="200"
-                      value={pixelGridRows}
-                      onChange={(e) => setPixelGridRows(Math.max(5, Math.min(200, parseInt(e.target.value) || 25)))}
-                      className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-center focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-slate-800"
-                    />
-                  </div>
-                  <span className="text-slate-400">×</span>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-slate-600 dark:text-slate-400">列数</label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="200"
-                      value={pixelGridCols}
-                      onChange={(e) => setPixelGridCols(Math.max(5, Math.min(200, parseInt(e.target.value) || 25)))}
-                      className="w-20 px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-center focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-slate-800"
-                    />
-                  </div>
-                  <span className="text-sm text-slate-500 dark:text-slate-400">
-                    (共 {pixelGridRows * pixelGridCols} 格)
-                  </span>
-                </div>
+              <div className="flex flex-wrap gap-2">
+                {GRID_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant={gridSize === option.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleGridSizeChange(option.value)}
+                    className={`min-w-[80px] ${
+                      gridSize === option.value 
+                        ? 'bg-blue-600 hover:bg-blue-700' 
+                        : ''
+                    }`}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Main Content */}
         <div className="grid lg:grid-cols-2 gap-6">
@@ -631,36 +496,6 @@ export default function Home() {
                 <Upload className="w-5 h-5" />
                 上传图片
               </h2>
-
-              {/* Upload Mode Selection */}
-              <div className="mb-4">
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">选择上传类型：</p>
-                <div className="flex gap-2">
-                  <Button
-                    variant={uploadMode === 'original' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setUploadMode('original')}
-                    className={uploadMode === 'original' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-                  >
-                    <ImageIcon className="w-4 h-4 mr-1" />
-                    原图（需抠图）
-                  </Button>
-                  <Button
-                    variant={uploadMode === 'pixel' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setUploadMode('pixel')}
-                    className={uploadMode === 'pixel' ? 'bg-purple-600 hover:bg-purple-700' : ''}
-                  >
-                    <Grid3X3 className="w-4 h-4 mr-1" />
-                    像素图纸
-                  </Button>
-                </div>
-                {uploadMode === 'pixel' && (
-                  <p className="text-xs text-slate-500 mt-2">
-                    按用户设置的网格参数均匀分割图像，对每个网格单元填充MARD色号
-                  </p>
-                )}
-              </div>
 
               {/* Upload Zone */}
               <div
@@ -724,12 +559,7 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm">
-                    {uploadMode === 'pixel' 
-                      ? `像素图纸处理完成 - ${pixelGridRows}×${pixelGridCols} 网格`
-                      : `处理完成 - ${gridSize}×${gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
-                    }
-                  </span>
+                  <span className="text-sm">处理完成 - {gridSize}×{gridSize} 网格纸 {useAnimeImage ? '(动漫风格)' : ''}</span>
                 </div>
               )}
 
@@ -747,129 +577,105 @@ export default function Home() {
               {/* Action Buttons */}
               {step === 'done' && (
                 <div className="mt-6 space-y-3">
-                  {/* Pixel art mode: show different buttons */}
-                  {uploadMode === 'pixel' ? (
-                    <>
-                      {/* Download and Reset */}
-                      <div className="flex gap-3">
-                        <Button
-                          onClick={handleDownloadBeadPattern}
-                          className="flex-1 bg-purple-600 hover:bg-purple-700"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          下载高清图纸
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={handleReset}
-                        >
-                          重新开始
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Anime Transform Button */}
-                      <Button
-                        onClick={handleTransformAnime}
-                        disabled={isTransformingAnime || !removedBgImage}
-                        variant="outline"
-                        className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
-                      >
-                        {isTransformingAnime ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            正在转换为动漫风格...
-                          </>
-                        ) : animeImage ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            重新生成动漫风格
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            转换为动漫风格
-                          </>
-                        )}
-                      </Button>
+                  {/* Anime Transform Button */}
+                  <Button
+                    onClick={handleTransformAnime}
+                    disabled={isTransformingAnime || !removedBgImage}
+                    variant="outline"
+                    className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                  >
+                    {isTransformingAnime ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在转换为动漫风格...
+                      </>
+                    ) : animeImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成动漫风格
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        转换为动漫风格
+                      </>
+                    )}
+                  </Button>
 
-                      {/* Pixelate Button */}
-                      <Button
-                        onClick={handlePixelate}
-                        disabled={isPixelating || (!removedBgImage && !animeImage)}
-                        variant="outline"
-                        className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
-                      >
-                        {isPixelating ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            正在像素化处理...
-                          </>
-                        ) : pixelatedImage ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            重新生成像素化
-                          </>
-                        ) : (
-                          <>
-                            <Grid2X2 className="w-4 h-4 mr-2" />
-                            像素化处理
-                          </>
-                        )}
-                      </Button>
+                  {/* Pixelate Button */}
+                  <Button
+                    onClick={handlePixelate}
+                    disabled={isPixelating || (!removedBgImage && !animeImage)}
+                    variant="outline"
+                    className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
+                  >
+                    {isPixelating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在像素化处理...
+                      </>
+                    ) : pixelatedImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成像素化
+                      </>
+                    ) : (
+                      <>
+                        <Grid2X2 className="w-4 h-4 mr-2" />
+                        像素化处理
+                      </>
+                    )}
+                  </Button>
 
-                      {/* Bead Pattern Button */}
-                      <Button
-                        onClick={handleGenerateBeadPattern}
-                        disabled={isGeneratingBeadPattern || !pixelatedImage}
-                        variant="outline"
-                        className="w-full border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/20"
-                      >
-                        {isGeneratingBeadPattern ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            正在生成拼豆图纸...
-                          </>
-                        ) : beadPatternImage ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            重新生成拼豆图纸
-                          </>
-                        ) : (
-                          <>
-                            <Beaker className="w-4 h-4 mr-2" />
-                            生成拼豆图纸
-                          </>
-                        )}
-                      </Button>
+                  {/* Bead Pattern Button */}
+                  <Button
+                    onClick={handleGenerateBeadPattern}
+                    disabled={isGeneratingBeadPattern || !pixelatedImage}
+                    variant="outline"
+                    className="w-full border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/20"
+                  >
+                    {isGeneratingBeadPattern ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        正在生成拼豆图纸...
+                      </>
+                    ) : beadPatternImage ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        重新生成拼豆图纸
+                      </>
+                    ) : (
+                      <>
+                        <Beaker className="w-4 h-4 mr-2" />
+                        生成拼豆图纸
+                      </>
+                    )}
+                  </Button>
 
-                      {/* Download and Reset */}
-                      <div className="flex gap-3">
-                        <Button
-                          onClick={handleDownload}
-                          className="flex-1 bg-blue-600 hover:bg-blue-700"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          下载抠图
-                        </Button>
-                        <Button
-                          onClick={handleDownloadOriginal}
-                          variant="outline"
-                          className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          下载原图
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={handleReset}
-                        >
-                          重新开始
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                  {/* Download and Reset */}
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleDownload}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      下载抠图
+                    </Button>
+                    <Button
+                      onClick={handleDownloadOriginal}
+                      variant="outline"
+                      className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      下载原图
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleReset}
+                    >
+                      重新开始
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -880,15 +686,10 @@ export default function Home() {
             <CardContent className="p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5" />
-                {uploadMode === 'pixel' ? '拼豆图纸' : '处理结果'}
-                {finalImage && uploadMode !== 'pixel' && (
+                处理结果
+                {finalImage && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
                     ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
-                  </span>
-                )}
-                {finalImage && uploadMode === 'pixel' && (
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({pixelGridRows}×{pixelGridCols} 网格)
                   </span>
                 )}
               </h2>
@@ -912,7 +713,7 @@ export default function Home() {
                 {finalImage ? (
                   <img
                     src={finalImage}
-                    alt={uploadMode === 'pixel' ? '拼豆图纸' : '处理结果'}
+                    alt="处理结果"
                     className="max-w-full max-h-full object-contain"
                   />
                 ) : (
@@ -921,36 +722,14 @@ export default function Home() {
                       <ImageIcon className="w-10 h-10 text-slate-400 dark:text-slate-500" />
                     </div>
                     <p className="text-slate-500 dark:text-slate-400">
-                      {uploadMode === 'pixel' ? '上传像素图纸后，拼豆图纸将显示在这里' : '上传图片后，处理结果将显示在这里'}
+                      上传图片后，处理结果将显示在这里
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Color Legend - Show for pixel mode */}
-              {uploadMode === 'pixel' && beadPatternLegend.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {beadPatternLegend.map((color, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                        <div 
-                          className="w-5 h-5 rounded border border-slate-300"
-                          style={{ backgroundColor: color.hex }}
-                        />
-                        <span className="text-sm font-medium">{color.code}</span>
-                        <span className="text-xs text-slate-500">×{color.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                    总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
-                  </div>
-                </div>
-              )}
-
-              {/* Image Source Toggle - Only for original mode */}
-              {uploadMode === 'original' && animeImage && (
+              {/* Image Source Toggle */}
+              {animeImage && (
                 <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-purple-700 dark:text-purple-300">
@@ -971,88 +750,86 @@ export default function Home() {
           </Card>
         </div>
 
-        {/* Preview Cards - Only for original mode */}
-        {uploadMode === 'original' && (
-          <div className="grid md:grid-cols-2 gap-6 mt-6">
-            {/* Original Cutout Preview */}
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                  抠图预览（透明背景）
-                </h3>
-                <div 
-                  className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                  style={removedBgImage ? {
-                    backgroundImage: `
-                      linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                      linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                      linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                      linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                    `,
-                    backgroundSize: '20px 20px',
-                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                    backgroundColor: '#fff',
-                  } : {}}
-                >
-                  {removedBgImage ? (
-                    <img
-                      src={removedBgImage}
-                      alt="抠图结果"
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-sm">等待抠图...</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+        {/* Preview Cards */}
+        <div className="grid md:grid-cols-2 gap-6 mt-6">
+          {/* Original Cutout Preview */}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                抠图预览（透明背景）
+              </h3>
+              <div 
+                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                style={removedBgImage ? {
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                } : {}}
+              >
+                {removedBgImage ? (
+                  <img
+                    src={removedBgImage}
+                    alt="抠图结果"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <span className="text-slate-400 text-sm">等待抠图...</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Anime Preview */}
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  动漫抠图预览
-                </h3>
-                <div 
-                  className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                  style={animeImage ? {
-                    backgroundImage: `
-                      linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                      linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                      linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                      linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                    `,
-                    backgroundSize: '20px 20px',
-                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                    backgroundColor: '#fff',
-                  } : {}}
-                >
-                  {animeWithEdge ? (
-                    <img
-                      src={animeWithEdge}
-                      alt="动漫风格抠图结果（带边缘线）"
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  ) : animeImage ? (
-                    <img
-                      src={animeImage}
-                      alt="动漫风格抠图结果"
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  ) : (
-                    <span className="text-slate-400 text-sm">
-                      {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+          {/* Anime Preview */}
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                动漫抠图预览
+              </h3>
+              <div 
+                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                style={animeImage ? {
+                  backgroundImage: `
+                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                  `,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                  backgroundColor: '#fff',
+                } : {}}
+              >
+                {animeWithEdge ? (
+                  <img
+                    src={animeWithEdge}
+                    alt="动漫风格抠图结果（带边缘线）"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : animeImage ? (
+                  <img
+                    src={animeImage}
+                    alt="动漫风格抠图结果"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : (
+                  <span className="text-slate-400 text-sm">
+                    {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Pixelated Result Section - Only for original mode */}
-        {uploadMode === 'original' && pixelatedImage && (
+        {/* Pixelated Result Section */}
+        {pixelatedImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1086,8 +863,8 @@ export default function Home() {
           </Card>
         )}
 
-        {/* Bead Pattern Result Section - Only for original mode */}
-        {uploadMode === 'original' && beadPatternImage && (
+        {/* Bead Pattern Result Section */}
+        {beadPatternImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1146,99 +923,59 @@ export default function Home() {
         {/* Instructions */}
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
           <h3 className="text-lg font-semibold mb-4">使用说明</h3>
-          {uploadMode === 'pixel' ? (
-            <div className="grid sm:grid-cols-3 gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-purple-600 dark:text-purple-400 font-semibold">1</span>
-                </div>
-                <div>
-                  <p className="font-medium">设置网格参数</p>
-                  <p className="text-sm text-slate-500">输入网格的行数和列数</p>
-                </div>
+          <div className="grid sm:grid-cols-5 gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
               </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-purple-600 dark:text-purple-400 font-semibold">2</span>
-                </div>
-                <div>
-                  <p className="font-medium">上传像素图纸</p>
-                  <p className="text-sm text-slate-500">选择像素图纸图片</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-purple-600 dark:text-purple-400 font-semibold">3</span>
-                </div>
-                <div>
-                  <p className="font-medium">生成拼豆图纸</p>
-                  <p className="text-sm text-slate-500">自动填充MARD色号并提供下载</p>
-                </div>
+              <div>
+                <p className="font-medium">选择网格</p>
+                <p className="text-sm text-slate-500">选择网格规格</p>
               </div>
             </div>
-          ) : (
-            <div className="grid sm:grid-cols-5 gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
-                </div>
-                <div>
-                  <p className="font-medium">选择网格</p>
-                  <p className="text-sm text-slate-500">选择网格规格</p>
-                </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
               </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
-                </div>
-                <div>
-                  <p className="font-medium">上传图片</p>
-                  <p className="text-sm text-slate-500">选择人物照片</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
-                </div>
-                <div>
-                  <p className="font-medium">AI 抠图</p>
-                  <p className="text-sm text-slate-500">自动移除背景</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-purple-600 dark:text-purple-400 font-semibold">4</span>
-                </div>
-                <div>
-                  <p className="font-medium">动漫转换</p>
-                  <p className="text-sm text-slate-500">可选动漫风格</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
-                </div>
-                <div>
-                  <p className="font-medium">下载结果</p>
-                  <p className="text-sm text-slate-500">获取网格图片</p>
-                </div>
+              <div>
+                <p className="font-medium">上传图片</p>
+                <p className="text-sm text-slate-500">选择人物照片</p>
               </div>
             </div>
-          )}
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
+              </div>
+              <div>
+                <p className="font-medium">AI 抠图</p>
+                <p className="text-sm text-slate-500">自动移除背景</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-purple-600 dark:text-purple-400 font-semibold">4</span>
+              </div>
+              <div>
+                <p className="font-medium">动漫转换</p>
+                <p className="text-sm text-slate-500">可选动漫风格</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
+              </div>
+              <div>
+                <p className="font-medium">下载结果</p>
+                <p className="text-sm text-slate-500">获取网格图片</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            {uploadMode === 'pixel' ? (
-              <>
-                <strong>提示：</strong>请根据您的像素图纸设置正确的网格行数和列数，系统将按此参数均匀分割图像，并对每个网格单元填充对应的 MARD 色号。
-              </>
-            ) : (
-              <>
-                <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
-              </>
-            )}
+            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
           </p>
         </div>
       </div>
@@ -3274,624 +3011,5 @@ async function generateBeadPatternHD(
 
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = subjectImageUrl;
-  });
-}
-
-// Advanced grid detection using edge detection + projection analysis + periodicity validation
-function detectGridCountByVisualCounting(imageData: ImageData): {
-  gridCountX: number;
-  gridCountY: number;
-  cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }>;
-} {
-  const { width, height, data } = imageData;
-  
-  // Step 1: Calculate adaptive threshold for grid line detection
-  // Grid lines are typically darker than the average of the image
-  const calculateAdaptiveThreshold = (): number => {
-    let totalBrightness = 0;
-    const sampleSize = Math.min(width * height, 10000);
-    const step = Math.floor(width * height / sampleSize);
-    
-    for (let i = 0; i < width * height; i += step) {
-      const idx = i * 4;
-      const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-      totalBrightness += brightness;
-    }
-    
-    const avgBrightness = totalBrightness / Math.ceil((width * height) / step);
-    // Grid lines are typically darker than average - use a threshold below the average
-    return Math.min(avgBrightness * 0.7, 80);
-  };
-  
-  const threshold = calculateAdaptiveThreshold();
-  
-  // Step 2: Projection analysis - count dark pixels in each row/column
-  const calculateProjection = (isHorizontal: boolean): number[] => {
-    const projection: number[] = [];
-    const length = isHorizontal ? height : width;
-    const lineLength = isHorizontal ? width : height;
-    
-    for (let i = 0; i < length; i++) {
-      let darkCount = 0;
-      for (let j = 0; j < lineLength; j++) {
-        const idx = isHorizontal 
-          ? (i * width + j) * 4 
-          : (j * width + i) * 4;
-        const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-        if (brightness < threshold) darkCount++;
-      }
-      projection.push(darkCount);
-    }
-    return projection;
-  };
-  
-  // Step 3: Find peaks in projection (grid line positions)
-  // A peak represents a row/column that has many dark pixels (likely a grid line)
-  const findPeaks = (projection: number[]): number[] => {
-    const peaks: number[] = [];
-    const threshold_ratio = 0.5; // A line is a peak if it has more than 50% dark pixels
-    const lineLength = projection.length > 0 ? Math.max(...projection) : 0;
-    const peakThreshold = lineLength * threshold_ratio;
-    
-    // Find local maxima above threshold
-    for (let i = 1; i < projection.length - 1; i++) {
-      if (projection[i] >= peakThreshold &&
-          projection[i] >= projection[i - 1] &&
-          projection[i] >= projection[i + 1]) {
-        peaks.push(i);
-      }
-    }
-    
-    // Also include the first and last positions if they meet the threshold
-    if (projection[0] >= peakThreshold) peaks.unshift(0);
-    if (projection[projection.length - 1] >= peakThreshold) peaks.push(projection.length - 1);
-    
-    return peaks;
-  };
-  
-  // Step 4: Group nearby peaks (grid lines can be multiple pixels thick)
-  const groupPeaks = (peaks: number[], maxGap: number = 5): number[][] => {
-    if (peaks.length === 0) return [];
-    
-    const sorted = [...peaks].sort((a, b) => a - b);
-    const groups: number[][] = [[sorted[0]]];
-    
-    for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i] - sorted[i - 1] <= maxGap) {
-        groups[groups.length - 1].push(sorted[i]);
-      } else {
-        groups.push([sorted[i]]);
-      }
-    }
-    
-    return groups;
-  };
-  
-  // Step 5: Calculate center position for each peak group
-  const getPeakCenters = (groups: number[][]): number[] => {
-    return groups.map(group => Math.round(group.reduce((a, b) => a + b, 0) / group.length));
-  };
-  
-  // Step 6: Analyze periodicity of grid lines
-  // Returns the most likely spacing between grid lines
-  const analyzePeriodicity = (positions: number[], totalLength: number): {
-    spacing: number;
-    count: number;
-    validPositions: number[];
-  } => {
-    if (positions.length < 2) {
-      return { spacing: 0, count: 0, validPositions: positions };
-    }
-    
-    // Calculate all spacings
-    const spacings: number[] = [];
-    for (let i = 1; i < positions.length; i++) {
-      spacings.push(positions[i] - positions[i - 1]);
-    }
-    
-    // Find the most common spacing using histogram
-    const spacingHistogram = new Map<number, number>();
-    spacings.forEach(s => {
-      // Round to nearest 5 pixels for tolerance
-      const rounded = Math.round(s / 5) * 5;
-      spacingHistogram.set(rounded, (spacingHistogram.get(rounded) || 0) + 1);
-    });
-    
-    // Get top 3 most common spacings
-    const sortedSpacings = Array.from(spacingHistogram.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3);
-    
-    if (sortedSpacings.length === 0) {
-      return { spacing: 0, count: 0, validPositions: positions };
-    }
-    
-    // Use the most common spacing
-    const primarySpacing = sortedSpacings[0][0];
-    
-    // Validate: check if this spacing is consistent
-    const tolerance = primarySpacing * 0.15; // 15% tolerance
-    
-    // Rebuild valid positions based on consistent spacing
-    const validPositions: number[] = [positions[0]];
-    let lastValidPos = positions[0];
-    
-    for (let i = 1; i < positions.length; i++) {
-      const gap = positions[i] - lastValidPos;
-      // Check if gap matches the expected spacing (or multiple of it)
-      const multiples = [1, 2, 3]; // Allow for 1x, 2x, 3x spacing
-      const isConsistent = multiples.some(m => 
-        Math.abs(gap - primarySpacing * m) <= tolerance
-      );
-      
-      if (isConsistent) {
-        validPositions.push(positions[i]);
-        lastValidPos = positions[i];
-      }
-    }
-    
-    // Calculate grid count
-    const gridCount = validPositions.length > 1 ? validPositions.length - 1 : 0;
-    
-    return {
-      spacing: primarySpacing,
-      count: gridCount,
-      validPositions
-    };
-  };
-  
-  // Step 7: Alternative detection using color frequency analysis
-  // This helps detect grid size from pixel art without explicit grid lines
-  const detectGridByColorFrequency = (): { gridCountX: number; gridCountY: number } | null => {
-    // Sample colors at regular intervals
-    const sampleColors = (stepX: number, stepY: number): Map<string, number> => {
-      const colors = new Map<string, number>();
-      
-      for (let y = stepY / 2; y < height; y += stepY) {
-        for (let x = stepX / 2; x < width; x += stepX) {
-          const idx = (Math.floor(y) * width + Math.floor(x)) * 4;
-          const r = data[idx];
-          const g = data[idx + 1];
-          const b = data[idx + 2];
-          const colorKey = `${Math.round(r / 16) * 16},${Math.round(g / 16) * 16},${Math.round(b / 16) * 16}`;
-          colors.set(colorKey, (colors.get(colorKey) || 0) + 1);
-        }
-      }
-      
-      return colors;
-    };
-    
-    // Try different grid sizes and find the one with most color consistency
-    const candidates = [10, 12, 15, 16, 20, 24, 25, 32, 40, 48, 50, 52, 64, 80, 100];
-    let bestGridSize = 0;
-    let bestScore = 0;
-    
-    for (const gridSize of candidates) {
-      const cellW = width / gridSize;
-      const cellH = height / gridSize;
-      
-      if (cellW < 2 || cellH < 2) continue;
-      
-      const colors = sampleColors(cellW, cellH);
-      
-      // Score based on color diversity (fewer unique colors = more consistent grid)
-      const totalSamples = colors.size > 0 ? Array.from(colors.values()).reduce((a, b) => a + b, 0) : 0;
-      const uniqueColors = colors.size;
-      
-      // A good grid should have repeated colors (not too many unique colors per cell)
-      if (totalSamples > 0) {
-        const score = totalSamples / (uniqueColors + 1);
-        if (score > bestScore) {
-          bestScore = score;
-          bestGridSize = gridSize;
-        }
-      }
-    }
-    
-    return bestGridSize > 0 ? { gridCountX: bestGridSize, gridCountY: bestGridSize } : null;
-  };
-  
-  // Process horizontal and vertical projections
-  const hProjection = calculateProjection(true);
-  const vProjection = calculateProjection(false);
-  
-  const hPeaks = findPeaks(hProjection);
-  const vPeaks = findPeaks(vProjection);
-  
-  const hGroups = groupPeaks(hPeaks);
-  const vGroups = groupPeaks(vPeaks);
-  
-  const hPositions = getPeakCenters(hGroups);
-  const vPositions = getPeakCenters(vGroups);
-  
-  const hResult = analyzePeriodicity(hPositions, height);
-  const vResult = analyzePeriodicity(vPositions, width);
-  
-  let gridCountY = hResult.count;
-  let gridCountX = vResult.count;
-  
-  // If grid detection failed, try color frequency analysis
-  if (gridCountX < 2 || gridCountY < 2) {
-    const altResult = detectGridByColorFrequency();
-    if (altResult) {
-      gridCountX = altResult.gridCountX;
-      gridCountY = altResult.gridCountY;
-    }
-  }
-  
-  // Ensure minimum grid count
-  gridCountX = Math.max(gridCountX, 1);
-  gridCountY = Math.max(gridCountY, 1);
-  
-  // Generate cell boundaries
-  const cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
-  
-  // If we have valid grid line positions, use them
-  if (hResult.validPositions.length >= 2 && vResult.validPositions.length >= 2) {
-    const hLines = hResult.validPositions.sort((a, b) => a - b);
-    const vLines = vResult.validPositions.sort((a, b) => a - b);
-    
-    const actualGridCountY = Math.min(hLines.length - 1, gridCountY);
-    const actualGridCountX = Math.min(vLines.length - 1, gridCountX);
-    
-    for (let row = 0; row < actualGridCountY; row++) {
-      for (let col = 0; col < actualGridCountX; col++) {
-        const x1 = vLines[col] + 1;
-        const y1 = hLines[row] + 1;
-        const x2 = vLines[col + 1] - 1;
-        const y2 = hLines[row + 1] - 1;
-        
-        if (x2 > x1 && y2 > y1) {
-          cellBoundaries.push({ row, col, x1, y1, x2, y2 });
-        }
-      }
-    }
-  }
-  
-  // Fallback: divide evenly if no valid boundaries
-  if (cellBoundaries.length === 0) {
-    const cellW = Math.floor(width / gridCountX);
-    const cellH = Math.floor(height / gridCountY);
-    
-    for (let row = 0; row < gridCountY; row++) {
-      for (let col = 0; col < gridCountX; col++) {
-        cellBoundaries.push({
-          row, col,
-          x1: col * cellW,
-          y1: row * cellH,
-          x2: (col + 1) * cellW - 1,
-          y2: (row + 1) * cellH - 1
-        });
-      }
-    }
-  }
-  
-  return { gridCountX, gridCountY, cellBoundaries };
-}
-
-// Process pixel art image and generate bead pattern
-// Uses user-provided grid parameters to divide the image
-// NO background removal, fills ALL cells with MARD colors
-async function processPixelArt(
-  imageUrl: string,
-  gridRows: number,   // User-provided row count
-  gridCols: number,   // User-provided column count
-  scale: number = 3
-): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    img.onload = () => {
-      const srcCanvas = document.createElement('canvas');
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) {
-        reject(new Error('无法创建源画布'));
-        return;
-      }
-      
-      srcCanvas.width = img.width;
-      srcCanvas.height = img.height;
-      srcCtx.drawImage(img, 0, 0);
-      
-      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
-      const srcData = srcImageData.data;
-      
-      // Use user-provided grid parameters
-      const gridCountY = gridRows;
-      const gridCountX = gridCols;
-      const detectedGridSize = Math.max(gridCountX, gridCountY);
-      
-      // Calculate cell size and create evenly divided cells
-      const cellW = Math.floor(img.width / gridCountX);
-      const cellH = Math.floor(img.height / gridCountY);
-      
-      const cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
-      
-      for (let row = 0; row < gridCountY; row++) {
-        for (let col = 0; col < gridCountX; col++) {
-          cellBoundaries.push({
-            row, col,
-            x1: col * cellW,
-            y1: row * cellH,
-            x2: (col + 1) * cellW - 1,
-            y2: (row + 1) * cellH - 1
-          });
-        }
-      }
-      
-      // Process ALL cells - NO background removal
-      const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
-      
-      // Process each cell boundary - fill ALL cells
-      cellBoundaries.forEach((boundary) => {
-        const { row, col, x1, y1, x2, y2 } = boundary;
-        
-        let totalR = 0, totalG = 0, totalB = 0;
-        let pixelCount = 0;
-        
-        // Sample pixels from the cell area (excluding grid lines)
-        for (let y = y1; y <= y2; y++) {
-          for (let x = x1; x <= x2; x++) {
-            const idx = (y * img.width + x) * 4;
-            const r = srcData[idx];
-            const g = srcData[idx + 1];
-            const b = srcData[idx + 2];
-            
-            // Count all pixels, including dark ones (no skipping)
-            totalR += r;
-            totalG += g;
-            totalB += b;
-            pixelCount++;
-          }
-        }
-        
-        // Calculate average color for this cell
-        if (pixelCount > 0) {
-          const avgR = Math.round(totalR / pixelCount);
-          const avgG = Math.round(totalG / pixelCount);
-          const avgB = Math.round(totalB / pixelCount);
-          
-          const key = `${col},${row}`;
-          cellColors.set(key, { avgR, avgG, avgB });
-        }
-      });
-      
-      // Match ALL colors to MARD
-      const colorUsageCount = new Map<string, number>();
-      const mardColorMap = new Map<string, MardColor>();
-      
-      for (const [key, color] of cellColors) {
-        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
-        mardColorMap.set(key, mardColor);
-        const count = colorUsageCount.get(mardColor.code) || 0;
-        colorUsageCount.set(mardColor.code, count + 1);
-      }
-      
-      // Limit colors to max 20
-      const MAX_COLORS = 20;
-      let selectedColors: MardColor[];
-      
-      if (colorUsageCount.size <= MAX_COLORS) {
-        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
-          const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
-          return mardColorMap.get(key)!;
-        });
-      } else {
-        const sortedColors = Array.from(colorUsageCount.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_COLORS)
-          .map(([code]) => {
-            const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
-            return mardColorMap.get(key)!;
-          });
-        selectedColors = sortedColors;
-      }
-      
-      const selectedColorCodes = new Set(selectedColors.map(c => c.code));
-      
-      const hexToRgb = (hex: string) => {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16)
-        } : { r: 255, g: 255, b: 255 };
-      };
-      
-      // Create HD canvas
-      const gridAreaSize = 800 * scale;
-      const marginSize = 50 * scale;
-      const legendWidth = 200 * scale;
-      const gridTotalSize = gridAreaSize + marginSize * 2;
-      const totalWidth = gridTotalSize + legendWidth;
-      const totalHeight = gridTotalSize;
-      const cellSize = gridAreaSize / detectedGridSize;
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = totalWidth;
-      canvas.height = totalHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('无法创建画布'));
-        return;
-      }
-      
-      // Fill with white background
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, totalWidth, totalHeight);
-      
-      const offsetX = marginSize;
-      const offsetY = marginSize;
-      
-      // Draw ALL cells with MARD colors
-      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
-      const drawnBlocks: Array<{
-        x: number;
-        y: number;
-        color: MardColor;
-        rgbR: number;
-        rgbG: number;
-        rgbB: number;
-      }> = [];
-      
-      const finalColorCount = new Map<string, number>();
-      const colorMap = new Map<string, MardColor>();
-      
-      // Process ALL cells
-      for (const [key, srcColor] of cellColors) {
-        const [gridX, gridY] = key.split(',').map(Number);
-        const x = offsetX + gridX * cellSize;
-        const y = offsetY + gridY * cellSize;
-        
-        let mardColor = mardColorMap.get(key)!;
-        
-        // If color not in selected colors, find closest
-        if (!selectedColorCodes.has(mardColor.code)) {
-          let minDist = Infinity;
-          for (const color of selectedColors) {
-            const rgb = hexToRgb(color.hex);
-            const dist = Math.sqrt(
-              Math.pow(srcColor.avgR - rgb.r, 2) +
-              Math.pow(srcColor.avgG - rgb.g, 2) +
-              Math.pow(srcColor.avgB - rgb.b, 2)
-            );
-            if (dist < minDist) {
-              minDist = dist;
-              mardColor = color;
-            }
-          }
-        }
-        
-        const finalRgb = hexToRgb(mardColor.hex);
-        
-        ctx.fillStyle = mardColor.hex;
-        ctx.fillRect(x, y, cellSize, cellSize);
-        
-        drawnBlocks.push({
-          x, y,
-          color: mardColor,
-          rgbR: finalRgb.r,
-          rgbG: finalRgb.g,
-          rgbB: finalRgb.b
-        });
-        
-        if (!colorMap.has(mardColor.code)) {
-          colorMap.set(mardColor.code, mardColor);
-        }
-        
-        const count = finalColorCount.get(mardColor.code) || 0;
-        finalColorCount.set(mardColor.code, count + 1);
-      }
-      
-      // Draw grid lines
-      ctx.strokeStyle = '#cccccc';
-      ctx.lineWidth = 1;
-      
-      for (let i = 0; i <= detectedGridSize; i++) {
-        const pos = Math.floor(offsetX + i * cellSize);
-        
-        // Vertical line
-        ctx.beginPath();
-        ctx.moveTo(pos, offsetY);
-        ctx.lineTo(pos, offsetY + gridAreaSize);
-        ctx.stroke();
-        
-        // Horizontal line
-        ctx.beginPath();
-        ctx.moveTo(offsetX, offsetY + i * cellSize);
-        ctx.lineTo(offsetX + gridAreaSize, offsetY + i * cellSize);
-        ctx.stroke();
-      }
-      
-      // Draw row and column numbers
-      ctx.fillStyle = '#666666';
-      ctx.font = `bold ${12 * scale}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      for (let i = 0; i < detectedGridSize; i++) {
-        // Row numbers (left side)
-        const y = offsetY + (i + 0.5) * cellSize;
-        ctx.fillText(String(detectedGridSize - i), marginSize / 2, y);
-        
-        // Column numbers (top)
-        const x = offsetX + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), x, marginSize / 2);
-      }
-      
-      // Draw MARD color codes
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      for (const block of drawnBlocks) {
-        const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
-        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
-        ctx.font = `bold ${fontSize}px Arial`;
-        ctx.fillText(block.color.code, block.x + cellSize / 2, block.y + cellSize / 2);
-      }
-      
-      // Draw color legend
-      const legendX = gridTotalSize + 20 * scale;
-      const legendStartY = marginSize;
-      const colorBoxSize = 30 * scale;
-      const legendItemHeight = 40 * scale;
-      
-      ctx.fillStyle = '#333333';
-      ctx.font = `bold ${16 * scale}px Arial`;
-      ctx.textAlign = 'left';
-      ctx.fillText('色号图例', legendX, legendStartY - 10 * scale);
-      
-      const sortedColors = Array.from(finalColorCount.entries())
-        .sort((a, b) => b[1] - a[1]);
-      
-      sortedColors.forEach(([code, count], index) => {
-        const y = legendStartY + index * legendItemHeight;
-        const color = colorMap.get(code)!;
-        const rgb = hexToRgb(color.hex);
-        
-        // Draw color box
-        ctx.fillStyle = color.hex;
-        ctx.fillRect(legendX, y, colorBoxSize, colorBoxSize);
-        ctx.strokeStyle = '#cccccc';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(legendX, y, colorBoxSize, colorBoxSize);
-        
-        // Draw color code and count
-        const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
-        ctx.fillStyle = textColor;
-        ctx.textAlign = 'center';
-        ctx.font = `bold ${12 * scale}px Arial`;
-        ctx.fillText(code, legendX + colorBoxSize / 2, y + colorBoxSize / 2 + 4 * scale);
-        
-        // Draw count
-        ctx.fillStyle = '#333333';
-        ctx.textAlign = 'left';
-        ctx.font = `${14 * scale}px Arial`;
-        ctx.fillText(`×${count}`, legendX + colorBoxSize + 10 * scale, y + colorBoxSize / 2 + 5 * scale);
-      });
-      
-      // Total count
-      const totalBeads = Array.from(finalColorCount.values()).reduce((a, b) => a + b, 0);
-      ctx.fillStyle = '#333333';
-      ctx.textAlign = 'left';
-      ctx.font = `bold ${14 * scale}px Arial`;
-      ctx.fillText(`总计: ${totalBeads} 颗`, legendX, legendStartY + sortedColors.length * legendItemHeight + 20 * scale);
-      
-      const legend = sortedColors.map(([code, color]) => ({
-        ...colorMap.get(code)!,
-        count: finalColorCount.get(code) || 0
-      }));
-      
-      resolve({
-        image: canvas.toDataURL('image/png'),
-        legend,
-        detectedGridSize
-      });
-    };
-    
-    img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = imageUrl;
   });
 }
