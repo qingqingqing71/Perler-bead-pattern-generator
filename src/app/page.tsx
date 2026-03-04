@@ -436,15 +436,30 @@ export default function Home() {
   }, [pixelatedImage, gridSize, animeImage]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    // Pixel art mode: download the already generated bead pattern
+    // Pixel art mode: regenerate with HD scale for download
     if (uploadMode === 'pixel') {
-      if (!finalImage) return;
-      const link = document.createElement('a');
-      link.href = finalImage;
-      link.download = `bead-pattern-pixel-${pixelGridSize || gridSize}x${pixelGridSize || gridSize}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (!originalImage) return;
+      try {
+        // Generate HD version with 5x scale
+        const result = await processPixelArt(originalImage, 0, 5);
+        const link = document.createElement('a');
+        link.href = result.image;
+        link.download = `bead-pattern-hd-${result.detectedGridSize}x${result.detectedGridSize}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        console.error('HD download error:', err);
+        // Fallback to current image
+        if (finalImage) {
+          const link = document.createElement('a');
+          link.href = finalImage;
+          link.download = `bead-pattern-pixel-${pixelGridSize || gridSize}x${pixelGridSize || gridSize}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      }
       return;
     }
 
@@ -452,8 +467,8 @@ export default function Home() {
     if (!pixelatedSubject) return;
 
     try {
-      // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
+      // Generate high-resolution bead pattern (5x scale for HD quality)
+      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 5);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -473,7 +488,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridSize]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridSize, originalImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -692,7 +707,7 @@ export default function Home() {
                           className="flex-1 bg-purple-600 hover:bg-purple-700"
                         >
                           <Download className="w-4 h-4 mr-2" />
-                          下载拼豆图纸
+                          下载高清图纸
                         </Button>
                         <Button
                           variant="outline"
