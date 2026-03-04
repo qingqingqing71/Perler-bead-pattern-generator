@@ -250,161 +250,14 @@ export const MARD_COLORS: MardColor[] = [
 ];
 
 /**
- * 将RGB颜色转换为CIELAB颜色空间
- * LAB颜色空间更符合人眼感知，颜色距离计算更准确
- */
-function rgbToLab(r: number, g: number, bVal: number): { L: number; a: number; b: number } {
-  // Step 1: RGB to XYZ (sRGB D65)
-  let R = r / 255;
-  let G = g / 255;
-  let B = bVal / 255;
-
-  // Apply gamma correction (sRGB to linear RGB)
-  R = R > 0.04045 ? Math.pow((R + 0.055) / 1.055, 2.4) : R / 12.92;
-  G = G > 0.04045 ? Math.pow((G + 0.055) / 1.055, 2.4) : G / 12.92;
-  B = B > 0.04045 ? Math.pow((B + 0.055) / 1.055, 2.4) : B / 12.92;
-
-  // Scale to 0-100
-  R *= 100;
-  G *= 100;
-  B *= 100;
-
-  // Observer = 2°, Illuminant = D65
-  const X = R * 0.4124564 + G * 0.3575761 + B * 0.1804378;
-  const Y = R * 0.2126729 + G * 0.7151522 + B * 0.0721750;
-  const Z = R * 0.0193339 + G * 0.1191920 + B * 0.9503041;
-
-  // Step 2: XYZ to LAB
-  // Reference white point D65
-  const refX = 95.047;
-  const refY = 100.000;
-  const refZ = 108.883;
-
-  let x = X / refX;
-  let y = Y / refY;
-  let z = Z / refZ;
-
-  // Apply the f function
-  const delta = 6 / 29;
-  const f = (t: number) => t > delta * delta * delta ? Math.cbrt(t) : t / (3 * delta * delta) + 4 / 29;
-
-  const fx = f(x);
-  const fy = f(y);
-  const fz = f(z);
-
-  const L = 116 * fy - 16;
-  const a = 500 * (fx - fy);
-  const b = 500 * (fy - fz);
-
-  return { L, a, b };
-}
-
-/**
- * 计算CIEDE2000色差
- * 这是最准确的色差计算方法，符合人眼感知
- */
-function ciede2000(
-  L1: number, a1: number, b1: number,
-  L2: number, a2: number, b2: number
-): number {
-  // CIEDE2000 implementation
-  const kL = 1, kC = 1, kH = 1;
-
-  const C1 = Math.sqrt(a1 * a1 + b1 * b1);
-  const C2 = Math.sqrt(a2 * a2 + b2 * b2);
-  const C_mean = (C1 + C2) / 2;
-
-  const G = 0.5 * (1 - Math.sqrt(Math.pow(C_mean, 7) / (Math.pow(C_mean, 7) + Math.pow(25, 7))));
-
-  const a1_prime = a1 * (1 + G);
-  const a2_prime = a2 * (1 + G);
-
-  const C1_prime = Math.sqrt(a1_prime * a1_prime + b1 * b1);
-  const C2_prime = Math.sqrt(a2_prime * a2_prime + b2 * b2);
-
-  let h1_prime = Math.atan2(b1, a1_prime) * 180 / Math.PI;
-  if (h1_prime < 0) h1_prime += 360;
-
-  let h2_prime = Math.atan2(b2, a2_prime) * 180 / Math.PI;
-  if (h2_prime < 0) h2_prime += 360;
-
-  const deltaL_prime = L2 - L1;
-  const deltaC_prime = C2_prime - C1_prime;
-
-  let deltaH_prime: number;
-  if (C1_prime * C2_prime === 0) {
-    deltaH_prime = 0;
-  } else if (Math.abs(h2_prime - h1_prime) <= 180) {
-    deltaH_prime = h2_prime - h1_prime;
-  } else if (h2_prime - h1_prime > 180) {
-    deltaH_prime = h2_prime - h1_prime - 360;
-  } else {
-    deltaH_prime = h2_prime - h1_prime + 360;
-  }
-
-  const deltaH_prime_rad = 2 * Math.sqrt(C1_prime * C2_prime) * Math.sin(deltaH_prime * Math.PI / 360);
-  const deltaH_prime_abs = 2 * Math.sqrt(C1_prime * C2_prime) * Math.abs(Math.sin(deltaH_prime * Math.PI / 360));
-
-  const L_mean = (L1 + L2) / 2;
-  const C_prime_mean = (C1_prime + C2_prime) / 2;
-
-  let h_prime_mean: number;
-  if (C1_prime * C2_prime === 0) {
-    h_prime_mean = h1_prime + h2_prime;
-  } else if (Math.abs(h1_prime - h2_prime) <= 180) {
-    h_prime_mean = (h1_prime + h2_prime) / 2;
-  } else if (h1_prime + h2_prime < 360) {
-    h_prime_mean = (h1_prime + h2_prime + 360) / 2;
-  } else {
-    h_prime_mean = (h1_prime + h2_prime - 360) / 2;
-  }
-
-  const T = 1 -
-    0.17 * Math.cos((h_prime_mean - 30) * Math.PI / 180) +
-    0.24 * Math.cos(2 * h_prime_mean * Math.PI / 180) +
-    0.32 * Math.cos((3 * h_prime_mean + 6) * Math.PI / 180) -
-    0.20 * Math.cos((4 * h_prime_mean - 63) * Math.PI / 180);
-
-  const SL = 1 + (0.015 * Math.pow(L_mean - 50, 2)) / Math.sqrt(20 + Math.pow(L_mean - 50, 2));
-  const SC = 1 + 0.045 * C_prime_mean;
-  const SH = 1 + 0.015 * C_prime_mean * T;
-
-  const RT = -2 * Math.sqrt(Math.pow(C_prime_mean, 7) / (Math.pow(C_prime_mean, 7) + Math.pow(25, 7))) *
-    Math.sin(60 * Math.exp(-Math.pow((h_prime_mean - 275) / 25, 2)) * Math.PI / 180);
-
-  const deltaE = Math.sqrt(
-    Math.pow(deltaL_prime / (kL * SL), 2) +
-    Math.pow(deltaC_prime / (kC * SC), 2) +
-    Math.pow(deltaH_prime_abs / (kH * SH), 2) +
-    RT * (deltaC_prime / (kC * SC)) * (deltaH_prime_abs / (kH * SH))
-  );
-
-  return deltaE;
-}
-
-/**
- * 计算两个颜色之间的距离（使用LAB颜色空间）
+ * 计算两个颜色之间的欧氏距离
  */
 function colorDistance(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number {
-  const lab1 = rgbToLab(r1, g1, b1);
-  const lab2 = rgbToLab(r2, g2, b2);
-  
-  // 使用简化的LAB距离（欧氏距离在LAB空间）
-  // 对于更精确的匹配，可以使用CIEDE2000
   return Math.sqrt(
-    Math.pow(lab1.L - lab2.L, 2) +
-    Math.pow(lab1.a - lab2.a, 2) +
-    Math.pow(lab1.b - lab2.b, 2)
+    Math.pow(r1 - r2, 2) +
+    Math.pow(g1 - g2, 2) +
+    Math.pow(b1 - b2, 2)
   );
-}
-
-/**
- * 计算两个颜色之间的CIEDE2000色差（更精确）
- */
-function colorDistanceCIEDE2000(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number {
-  const lab1 = rgbToLab(r1, g1, b1);
-  const lab2 = rgbToLab(r2, g2, b2);
-  return ciede2000(lab1.L, lab1.a, lab1.b, lab2.L, lab2.a, lab2.b);
 }
 
 /**
@@ -421,28 +274,16 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     : { r: 255, g: 255, b: 255 };
 }
 
-// 缓存LAB值以提高性能
-const MARD_COLORS_LAB = MARD_COLORS.map(color => {
-  const rgb = hexToRgb(color.hex);
-  const lab = rgbToLab(rgb.r, rgb.g, rgb.b);
-  return { ...color, lab, rgb };
-});
-
 /**
- * 找到最接近的MARD色号（使用CIEDE2000色差）
+ * 找到最接近的MARD色号
  */
 export function findClosestMardColor(r: number, g: number, b: number): MardColor {
-  const sourceLab = rgbToLab(r, g, b);
-  
-  let closestColor = MARD_COLORS_LAB[0];
+  let closestColor = MARD_COLORS[0];
   let minDistance = Infinity;
 
-  for (const color of MARD_COLORS_LAB) {
-    // 使用CIEDE2000色差，更精确
-    const distance = ciede2000(
-      sourceLab.L, sourceLab.a, sourceLab.b,
-      color.lab.L, color.lab.a, color.lab.b
-    );
+  for (const color of MARD_COLORS) {
+    const rgb = hexToRgb(color.hex);
+    const distance = colorDistance(r, g, b, rgb.r, rgb.g, rgb.b);
     
     if (distance < minDistance) {
       minDistance = distance;
@@ -450,32 +291,5 @@ export function findClosestMardColor(r: number, g: number, b: number): MardColor
     }
   }
 
-  return { code: closestColor.code, hex: closestColor.hex };
-}
-
-/**
- * 找到最接近的MARD色号（使用LAB距离，速度更快）
- * 用于需要快速匹配的场景
- */
-export function findClosestMardColorFast(r: number, g: number, b: number): MardColor {
-  const sourceLab = rgbToLab(r, g, b);
-  
-  let closestColor = MARD_COLORS_LAB[0];
-  let minDistance = Infinity;
-
-  for (const color of MARD_COLORS_LAB) {
-    // 使用LAB空间的欧氏距离
-    const distance = Math.sqrt(
-      Math.pow(sourceLab.L - color.lab.L, 2) +
-      Math.pow(sourceLab.a - color.lab.a, 2) +
-      Math.pow(sourceLab.b - color.lab.b, 2)
-    );
-    
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestColor = color;
-    }
-  }
-
-  return { code: closestColor.code, hex: closestColor.hex };
+  return closestColor;
 }
