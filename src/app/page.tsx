@@ -192,6 +192,7 @@ export default function Home() {
       setOriginalImage(imageDataUrl);
 
       // Pixel art mode: directly process pixel art to bead pattern
+      // NO background removal, just detect grid and fill colors
       if (uploadMode === 'pixel') {
         setStep('generating-grid');
         setProgress(30);
@@ -203,8 +204,7 @@ export default function Home() {
         setBeadPatternImage(result.image);
         setBeadPatternLegend(result.legend);
         setFinalImage(result.image);
-        setRemovedBgImage(imageDataUrl); // Keep original as reference
-        setRemovedBgWithEdge(imageDataUrl);
+        // Keep original as reference (no background removal needed)
         
         setStep('done');
         setProgress(100);
@@ -836,6 +836,11 @@ export default function Home() {
                     ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
                   </span>
                 )}
+                {finalImage && uploadMode === 'pixel' && pixelGridSize && (
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    (检测到 {pixelGridSize}×{pixelGridSize} 网格)
+                  </span>
+                )}
               </h2>
 
               <div 
@@ -857,7 +862,7 @@ export default function Home() {
                 {finalImage ? (
                   <img
                     src={finalImage}
-                    alt="处理结果"
+                    alt={uploadMode === 'pixel' ? '拼豆图纸' : '处理结果'}
                     className="max-w-full max-h-full object-contain"
                   />
                 ) : (
@@ -866,14 +871,36 @@ export default function Home() {
                       <ImageIcon className="w-10 h-10 text-slate-400 dark:text-slate-500" />
                     </div>
                     <p className="text-slate-500 dark:text-slate-400">
-                      上传图片后，处理结果将显示在这里
+                      {uploadMode === 'pixel' ? '上传像素图纸后，拼豆图纸将显示在这里' : '上传图片后，处理结果将显示在这里'}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Image Source Toggle */}
-              {animeImage && (
+              {/* Color Legend - Show for pixel mode */}
+              {uploadMode === 'pixel' && beadPatternLegend.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {beadPatternLegend.map((color, index) => (
+                      <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                        <div 
+                          className="w-5 h-5 rounded border border-slate-300"
+                          style={{ backgroundColor: color.hex }}
+                        />
+                        <span className="text-sm font-medium">{color.code}</span>
+                        <span className="text-xs text-slate-500">×{color.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                    总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
+                  </div>
+                </div>
+              )}
+
+              {/* Image Source Toggle - Only for original mode */}
+              {uploadMode === 'original' && animeImage && (
                 <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-purple-700 dark:text-purple-300">
@@ -1070,14 +1097,14 @@ export default function Home() {
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
           <h3 className="text-lg font-semibold mb-4">使用说明</h3>
           {uploadMode === 'pixel' ? (
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-3 gap-4">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-purple-600 dark:text-purple-400 font-semibold">1</span>
                 </div>
                 <div>
                   <p className="font-medium">上传像素图纸</p>
-                  <p className="text-sm text-slate-500">选择带有网格线的像素图纸</p>
+                  <p className="text-sm text-slate-500">选择带有网格的像素图纸</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -1085,8 +1112,17 @@ export default function Home() {
                   <span className="text-purple-600 dark:text-purple-400 font-semibold">2</span>
                 </div>
                 <div>
-                  <p className="font-medium">自动生成拼豆图纸</p>
-                  <p className="text-sm text-slate-500">系统自动检测网格并填充色号</p>
+                  <p className="font-medium">自动分割网格</p>
+                  <p className="text-sm text-slate-500">检测网格线并划分网格单元</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-purple-600 dark:text-purple-400 font-semibold">3</span>
+                </div>
+                <div>
+                  <p className="font-medium">生成拼豆图纸</p>
+                  <p className="text-sm text-slate-500">填充MARD色号并提供高清下载</p>
                 </div>
               </div>
             </div>
