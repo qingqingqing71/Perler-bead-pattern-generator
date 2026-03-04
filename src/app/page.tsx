@@ -526,34 +526,36 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Grid Size Selector */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Grid3X3 className="w-5 h-5 text-blue-600" />
-                <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
+        {/* Grid Size Selector - Only show for original mode */}
+        {uploadMode === 'original' && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Grid3X3 className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {GRID_OPTIONS.map((option) => (
+                    <Button
+                      key={option.value}
+                      variant={gridSize === option.value ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleGridSizeChange(option.value)}
+                      className={`min-w-[80px] ${
+                        gridSize === option.value 
+                          ? 'bg-blue-600 hover:bg-blue-700' 
+                          : ''
+                      }`}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {GRID_OPTIONS.map((option) => (
-                  <Button
-                    key={option.value}
-                    variant={gridSize === option.value ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleGridSizeChange(option.value)}
-                    className={`min-w-[80px] ${
-                      gridSize === option.value 
-                        ? 'bg-blue-600 hover:bg-blue-700' 
-                        : ''
-                    }`}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content */}
         <div className="grid lg:grid-cols-2 gap-6">
@@ -3141,178 +3143,177 @@ async function generateBeadPatternHD(
   });
 }
 
-// Detect grid size from pixel art image by analyzing grid lines
-function detectGridSize(imageData: ImageData): number {
-  const { width, height, data } = imageData;
-  
-  // Analyze horizontal and vertical lines
-  const horizontalLines: number[] = [];
-  const verticalLines: number[] = [];
-  
-  // Detect horizontal lines (rows with consistent dark pixels)
-  for (let y = 0; y < height; y++) {
-    let darkPixels = 0;
-    let totalPixels = 0;
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 50) darkPixels++;
-      totalPixels++;
-    }
-    // If more than 80% of the row is dark, it's likely a grid line
-    if (darkPixels / totalPixels > 0.8) {
-      horizontalLines.push(y);
-    }
-  }
-  
-  // Detect vertical lines (columns with consistent dark pixels)
-  for (let x = 0; x < width; x++) {
-    let darkPixels = 0;
-    let totalPixels = 0;
-    for (let y = 0; y < height; y++) {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 50) darkPixels++;
-      totalPixels++;
-    }
-    if (darkPixels / totalPixels > 0.8) {
-      verticalLines.push(x);
-    }
-  }
-  
-  // Calculate average spacing between lines
-  const calculateSpacing = (lines: number[]): number => {
-    if (lines.length < 2) return 0;
-    const spacings: number[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      spacings.push(lines[i] - lines[i - 1]);
-    }
-    // Find most common spacing
-    const sortedSpacings = spacings.sort((a, b) => a - b);
-    const medianSpacing = sortedSpacings[Math.floor(sortedSpacings.length / 2)];
-    return medianSpacing;
-  };
-  
-  const hSpacing = calculateSpacing(horizontalLines);
-  const vSpacing = calculateSpacing(verticalLines);
-  const avgSpacing = Math.max(hSpacing, vSpacing);
-  
-  if (avgSpacing > 0) {
-    // Estimate grid count
-    const gridCount = Math.round(Math.min(width, height) / avgSpacing);
-    // Round to common grid sizes
-    const commonSizes = [15, 20, 25, 32, 40, 50, 52, 64, 80, 100];
-    let closestSize = commonSizes[0];
-    let minDiff = Math.abs(gridCount - closestSize);
-    for (const size of commonSizes) {
-      const diff = Math.abs(gridCount - size);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestSize = size;
-      }
-    }
-    return closestSize;
-  }
-  
-  return 0; // Could not detect
-}
-
-// Detect grid lines positions (returns array of line positions)
-function detectGridLines(imageData: ImageData): {
-  horizontalLines: number[];
-  verticalLines: number[];
-  cellWidth: number;
-  cellHeight: number;
+// Detect grid count using visual counting + grid line segment verification
+// This method counts grid cells by analyzing the pattern of grid lines
+function detectGridCountByVisualCounting(imageData: ImageData): {
   gridCountX: number;
   gridCountY: number;
+  cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }>;
 } {
   const { width, height, data } = imageData;
   
-  const horizontalLines: number[] = [];
-  const verticalLines: number[] = [];
-  
-  // Detect horizontal lines (rows with consistent dark pixels)
-  for (let y = 0; y < height; y++) {
-    let darkPixels = 0;
-    let totalPixels = 0;
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 50) darkPixels++;
-      totalPixels++;
-    }
-    // If more than 70% of the row is dark, it's likely a grid line
-    if (darkPixels / totalPixels > 0.7) {
-      horizontalLines.push(y);
-    }
-  }
-  
-  // Detect vertical lines (columns with consistent dark pixels)
-  for (let x = 0; x < width; x++) {
-    let darkPixels = 0;
-    let totalPixels = 0;
-    for (let y = 0; y < height; y++) {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 50) darkPixels++;
-      totalPixels++;
-    }
-    if (darkPixels / totalPixels > 0.7) {
-      verticalLines.push(x);
-    }
-  }
-  
-  // Calculate cell size from line spacing
-  const calculateCellSize = (lines: number[]): { cellSize: number; count: number } => {
-    if (lines.length < 2) return { cellSize: 0, count: 0 };
+  // Step 1: Detect potential grid lines (rows/columns with dark pixels)
+  const detectPotentialLines = (isHorizontal: boolean): number[] => {
+    const lines: number[] = [];
+    const length = isHorizontal ? height : width;
+    const lineLength = isHorizontal ? width : height;
     
-    const spacings: number[] = [];
+    for (let i = 0; i < length; i++) {
+      let darkCount = 0;
+      for (let j = 0; j < lineLength; j++) {
+        const idx = isHorizontal 
+          ? (i * width + j) * 4 
+          : (j * width + i) * 4;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        const brightness = (r + g + b) / 3;
+        if (brightness < 60) darkCount++;
+      }
+      // If more than 60% dark, consider it a potential grid line
+      if (darkCount / lineLength > 0.6) {
+        lines.push(i);
+      }
+    }
+    return lines;
+  };
+  
+  // Step 2: Group consecutive line positions (grid lines can be multiple pixels thick)
+  const groupConsecutiveLines = (lines: number[]): number[][] => {
+    if (lines.length === 0) return [];
+    const groups: number[][] = [];
+    let currentGroup = [lines[0]];
+    
     for (let i = 1; i < lines.length; i++) {
-      spacings.push(lines[i] - lines[i - 1]);
+      if (lines[i] - lines[i - 1] <= 3) {
+        currentGroup.push(lines[i]);
+      } else {
+        groups.push(currentGroup);
+        currentGroup = [lines[i]];
+      }
+    }
+    groups.push(currentGroup);
+    return groups;
+  };
+  
+  // Step 3: Calculate representative position for each line group (center of the line)
+  const getLinePositions = (groups: number[][]): number[] => {
+    return groups.map(group => Math.round(group.reduce((a, b) => a + b, 0) / group.length));
+  };
+  
+  // Step 4: Validate grid lines by checking spacing consistency
+  const validateAndCountGrids = (linePositions: number[], totalLength: number): { 
+    count: number; 
+    validLines: number[] 
+  } => {
+    if (linePositions.length < 2) return { count: 0, validLines: linePositions };
+    
+    // Calculate spacings between consecutive lines
+    const spacings: number[] = [];
+    for (let i = 1; i < linePositions.length; i++) {
+      spacings.push(linePositions[i] - linePositions[i - 1]);
     }
     
-    // Find median spacing
-    const sortedSpacings = [...spacings].sort((a, b) => a - b);
-    const medianSpacing = sortedSpacings[Math.floor(sortedSpacings.length / 2)];
+    // Find the most common spacing (mode)
+    const spacingCounts = new Map<number, number>();
+    spacings.forEach(s => {
+      const rounded = Math.round(s);
+      spacingCounts.set(rounded, (spacingCounts.get(rounded) || 0) + 1);
+    });
     
-    return { cellSize: medianSpacing, count: spacings.length };
+    let maxCount = 0;
+    let commonSpacing = 0;
+    spacingCounts.forEach((count, spacing) => {
+      if (count > maxCount) {
+        maxCount = count;
+        commonSpacing = spacing;
+      }
+    });
+    
+    // Allow 10% tolerance for spacing variations
+    const tolerance = commonSpacing * 0.1;
+    
+    // Validate lines: keep lines that form consistent spacing
+    const validLines: number[] = [linePositions[0]];
+    for (let i = 1; i < linePositions.length; i++) {
+      const spacing = linePositions[i] - validLines[validLines.length - 1];
+      if (Math.abs(spacing - commonSpacing) <= tolerance || 
+          Math.abs(spacing - commonSpacing * 2) <= tolerance) {
+        // Accept if spacing matches or is close to double (skipped line)
+        validLines.push(linePositions[i]);
+      }
+    }
+    
+    // Grid count = number of spaces between lines
+    const gridCount = validLines.length > 1 ? validLines.length - 1 : 0;
+    
+    return { count: gridCount, validLines };
   };
   
-  const hResult = calculateCellSize(horizontalLines);
-  const vResult = calculateCellSize(verticalLines);
+  // Process horizontal and vertical lines
+  const hPotentialLines = detectPotentialLines(true);
+  const vPotentialLines = detectPotentialLines(false);
   
-  const cellWidth = vResult.cellSize || Math.floor(width / (verticalLines.length || 1));
-  const cellHeight = hResult.cellSize || Math.floor(height / (horizontalLines.length || 1));
-  const gridCountX = vResult.count || verticalLines.length;
-  const gridCountY = hResult.count || horizontalLines.length;
+  const hGroups = groupConsecutiveLines(hPotentialLines);
+  const vGroups = groupConsecutiveLines(vPotentialLines);
   
-  return {
-    horizontalLines,
-    verticalLines,
-    cellWidth,
-    cellHeight,
-    gridCountX,
-    gridCountY
-  };
+  const hLinePositions = getLinePositions(hGroups);
+  const vLinePositions = getLinePositions(vGroups);
+  
+  const hResult = validateAndCountGrids(hLinePositions, height);
+  const vResult = validateAndCountGrids(vLinePositions, width);
+  
+  const gridCountY = hResult.count || 1;
+  const gridCountX = vResult.count || 1;
+  
+  // Step 5: Generate cell boundaries
+  const cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
+  
+  // If we have valid grid lines, use them to define cells
+  if (hResult.validLines.length >= 2 && vResult.validLines.length >= 2) {
+    const hLines = hResult.validLines;
+    const vLines = vResult.validLines;
+    
+    for (let row = 0; row < gridCountY; row++) {
+      for (let col = 0; col < gridCountX; col++) {
+        const x1 = vLines[col] + 1;
+        const y1 = hLines[row] + 1;
+        const x2 = vLines[col + 1] - 1;
+        const y2 = hLines[row + 1] - 1;
+        
+        if (x2 > x1 && y2 > y1) {
+          cellBoundaries.push({ row, col, x1, y1, x2, y2 });
+        }
+      }
+    }
+  } else {
+    // Fallback: divide image evenly
+    const cellW = Math.floor(width / gridCountX);
+    const cellH = Math.floor(height / gridCountY);
+    
+    for (let row = 0; row < gridCountY; row++) {
+      for (let col = 0; col < gridCountX; col++) {
+        cellBoundaries.push({
+          row, col,
+          x1: col * cellW,
+          y1: row * cellH,
+          x2: (col + 1) * cellW - 1,
+          y2: (row + 1) * cellH - 1
+        });
+      }
+    }
+  }
+  
+  return { gridCountX, gridCountY, cellBoundaries };
 }
 
+// Detect grid lines positions (returns array of line positions)
 // Process pixel art image and generate bead pattern
-// Detects grid lines and processes each cell - NO background removal, fills ALL cells
+// Uses visual counting + grid line segment verification to detect grid count
+// NO background removal, fills ALL cells with MARD colors
 async function processPixelArt(
   imageUrl: string,
-  gridSize: number,  // Ignored - auto-detected from image
+  _gridSize: number,  // Ignored - auto-detected from image
   scale: number = 3
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
   return new Promise((resolve, reject) => {
@@ -3334,49 +3335,23 @@ async function processPixelArt(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
       
-      // Detect grid lines
-      const gridInfo = detectGridLines(srcImageData);
+      // Use visual counting + grid line segment verification to detect grid count
+      const gridInfo = detectGridCountByVisualCounting(srcImageData);
       
-      let detectedGridSize: number;
-      let cellBoundaries: Array<{ row: number; col: number; x1: number; y1: number; x2: number; y2: number }> = [];
+      const gridCountX = gridInfo.gridCountX;
+      const gridCountY = gridInfo.gridCountY;
+      const detectedGridSize = Math.max(gridCountX, gridCountY);
       
-      // Check if we detected enough grid lines
-      if (gridInfo.gridCountX >= 2 && gridInfo.gridCountY >= 2) {
-        // Use detected grid lines to define cell boundaries
-        detectedGridSize = Math.min(gridInfo.gridCountX, gridInfo.gridCountY);
+      // Use the cell boundaries from detection
+      const cellBoundaries = gridInfo.cellBoundaries;
+      
+      // If no boundaries detected, create evenly divided cells
+      if (cellBoundaries.length === 0) {
+        const cellW = Math.floor(img.width / gridCountX);
+        const cellH = Math.floor(img.height / gridCountY);
         
-        // Create cell boundaries from grid lines
-        const hLines = gridInfo.horizontalLines;
-        const vLines = gridInfo.verticalLines;
-        
-        // Sort lines
-        hLines.sort((a, b) => a - b);
-        vLines.sort((a, b) => a - b);
-        
-        // Create cells between consecutive grid lines (excluding the lines themselves)
-        for (let row = 0; row < Math.min(hLines.length - 1, detectedGridSize); row++) {
-          for (let col = 0; col < Math.min(vLines.length - 1, detectedGridSize); col++) {
-            // Cell area is between grid lines, with 1-pixel margin to avoid the line
-            const x1 = vLines[col] + 1;
-            const y1 = hLines[row] + 1;
-            const x2 = vLines[col + 1] - 1;
-            const y2 = hLines[row + 1] - 1;
-            
-            if (x2 > x1 && y2 > y1) {
-              cellBoundaries.push({ row, col, x1, y1, x2, y2 });
-            }
-          }
-        }
-      } else {
-        // Fallback: no clear grid lines detected, try to estimate from image
-        // Assume the image is mostly square and divide evenly
-        detectedGridSize = detectGridSize(srcImageData) || 25;
-        
-        const cellW = Math.floor(img.width / detectedGridSize);
-        const cellH = Math.floor(img.height / detectedGridSize);
-        
-        for (let row = 0; row < detectedGridSize; row++) {
-          for (let col = 0; col < detectedGridSize; col++) {
+        for (let row = 0; row < gridCountY; row++) {
+          for (let col = 0; col < gridCountX; col++) {
             cellBoundaries.push({
               row, col,
               x1: col * cellW,
