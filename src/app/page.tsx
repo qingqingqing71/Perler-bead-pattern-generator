@@ -3621,16 +3621,16 @@ async function processPixelArt(
       }
       
       // Process ALL cells - NO background removal
-      // Use dominant color (most frequent) instead of average to avoid color dilution
-      const cellColors = new Map<string, { r: number; g: number; b: number }>();
+      const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
-      // Process each cell boundary - find dominant color
+      // Process each cell boundary - fill ALL cells
       cellBoundaries.forEach((boundary) => {
         const { row, col, x1, y1, x2, y2 } = boundary;
         
-        // Count color occurrences (quantized to reduce noise)
-        const colorCounts = new Map<string, { count: number; r: number; g: number; b: number }>();
+        let totalR = 0, totalG = 0, totalB = 0;
+        let pixelCount = 0;
         
+        // Sample pixels from the cell area (excluding grid lines)
         for (let y = y1; y <= y2; y++) {
           for (let x = x1; x <= x2; x++) {
             const idx = (y * img.width + x) * 4;
@@ -3638,34 +3638,23 @@ async function processPixelArt(
             const g = srcData[idx + 1];
             const b = srcData[idx + 2];
             
-            // Quantize color to reduce noise (round to nearest 16)
-            const qr = Math.round(r / 16) * 16;
-            const qg = Math.round(g / 16) * 16;
-            const qb = Math.round(b / 16) * 16;
-            
-            const colorKey = `${qr},${qg},${qb}`;
-            const existing = colorCounts.get(colorKey);
-            if (existing) {
-              existing.count++;
-            } else {
-              colorCounts.set(colorKey, { count: 1, r: qr, g: qg, b: qb });
-            }
+            // Count all pixels, including dark ones (no skipping)
+            totalR += r;
+            totalG += g;
+            totalB += b;
+            pixelCount++;
           }
         }
         
-        // Find the dominant color (most frequent)
-        let dominantColor = { r: 255, g: 255, b: 255 };
-        let maxCount = 0;
-        
-        colorCounts.forEach((value) => {
-          if (value.count > maxCount) {
-            maxCount = value.count;
-            dominantColor = { r: value.r, g: value.g, b: value.b };
-          }
-        });
-        
-        const key = `${col},${row}`;
-        cellColors.set(key, dominantColor);
+        // Calculate average color for this cell
+        if (pixelCount > 0) {
+          const avgR = Math.round(totalR / pixelCount);
+          const avgG = Math.round(totalG / pixelCount);
+          const avgB = Math.round(totalB / pixelCount);
+          
+          const key = `${col},${row}`;
+          cellColors.set(key, { avgR, avgG, avgB });
+        }
       });
       
       // Match ALL colors to MARD
@@ -3673,7 +3662,7 @@ async function processPixelArt(
       const mardColorMap = new Map<string, MardColor>();
       
       for (const [key, color] of cellColors) {
-        const mardColor = findClosestMardColor(color.r, color.g, color.b);
+        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
         mardColorMap.set(key, mardColor);
         const count = colorUsageCount.get(mardColor.code) || 0;
         colorUsageCount.set(mardColor.code, count + 1);
@@ -3764,9 +3753,9 @@ async function processPixelArt(
           for (const color of selectedColors) {
             const rgb = hexToRgb(color.hex);
             const dist = Math.sqrt(
-              Math.pow(srcColor.r - rgb.r, 2) +
-              Math.pow(srcColor.g - rgb.g, 2) +
-              Math.pow(srcColor.b - rgb.b, 2)
+              Math.pow(srcColor.avgR - rgb.r, 2) +
+              Math.pow(srcColor.avgG - rgb.g, 2) +
+              Math.pow(srcColor.avgB - rgb.b, 2)
             );
             if (dist < minDist) {
               minDist = dist;
