@@ -64,6 +64,8 @@ export default function Home() {
   const [beadPatternLegend, setBeadPatternLegend] = useState<Array<MardColor & { count: number }>>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
   const [modelLoaded, setModelLoaded] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'original' | 'pixel'>('original'); // 上传模式：原图或像素图纸
+  const [pixelGridSize, setPixelGridSize] = useState<number | null>(null); // 像素图纸检测到的网格数
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<{
     segmenter: BodySegmenter | null;
@@ -116,9 +118,32 @@ export default function Home() {
     loadModel();
   }, []);
 
+  // Reset state when upload mode changes
+  useEffect(() => {
+    // Reset all state when mode changes
+    setOriginalImage(null);
+    setRemovedBgImage(null);
+    setRemovedBgWithEdge(null);
+    setAnimeImage(null);
+    setAnimeWithEdge(null);
+    setFinalImage(null);
+    setUseAnimeImage(false);
+    setProgress(0);
+    setError(null);
+    setStep('idle');
+    setPixelatedImage(null);
+    setPixelatedSubject(null);
+    setBeadPatternImage(null);
+    setBeadPatternLegend([]);
+    setPixelGridSize(null);
+  }, [uploadMode]);
+
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    if ((step === 'idle' || step === 'done') && modelLoaded) {
+    // Original mode requires model, pixel mode doesn't
+    const canProceed = uploadMode === 'pixel' || modelLoaded;
+    
+    if ((step === 'idle' || step === 'done') && canProceed) {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -129,6 +154,11 @@ export default function Home() {
         setUseAnimeImage(false);
         setProgress(0);
         setError(null);
+        setPixelatedImage(null);
+        setPixelatedSubject(null);
+        setBeadPatternImage(null);
+        setBeadPatternLegend([]);
+        setPixelGridSize(null);
       }
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -149,6 +179,11 @@ export default function Home() {
     setAnimeImage(null);
     setAnimeWithEdge(null);
     setUseAnimeImage(false);
+    setPixelatedImage(null);
+    setPixelatedSubject(null);
+    setBeadPatternImage(null);
+    setBeadPatternLegend([]);
+    setPixelGridSize(null);
 
     try {
       setStep('uploading');
@@ -156,6 +191,27 @@ export default function Home() {
       const imageDataUrl = await readFileAsDataURL(file);
       setOriginalImage(imageDataUrl);
 
+      // Pixel art mode: directly process pixel art to bead pattern
+      if (uploadMode === 'pixel') {
+        setStep('generating-grid');
+        setProgress(30);
+        
+        const result = await processPixelArt(imageDataUrl, 0); // Auto-detect grid size
+        
+        setPixelGridSize(result.detectedGridSize);
+        setGridSize(result.detectedGridSize);
+        setBeadPatternImage(result.image);
+        setBeadPatternLegend(result.legend);
+        setFinalImage(result.image);
+        setRemovedBgImage(imageDataUrl); // Keep original as reference
+        setRemovedBgWithEdge(imageDataUrl);
+        
+        setStep('done');
+        setProgress(100);
+        return;
+      }
+
+      // Original mode: AI background removal
       setStep('loading-model');
       setProgress(20);
       
@@ -380,7 +436,19 @@ export default function Home() {
   }, [pixelatedImage, gridSize, animeImage]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    // Use pixelated subject (transparent background) directly
+    // Pixel art mode: download the already generated bead pattern
+    if (uploadMode === 'pixel') {
+      if (!finalImage) return;
+      const link = document.createElement('a');
+      link.href = finalImage;
+      link.download = `bead-pattern-pixel-${pixelGridSize || gridSize}x${pixelGridSize || gridSize}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    // Original mode: Use pixelated subject (transparent background) directly
     if (!pixelatedSubject) return;
 
     try {
@@ -405,7 +473,7 @@ export default function Home() {
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
+  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage, uploadMode, finalImage, pixelGridSize]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -427,7 +495,7 @@ export default function Home() {
     }
   }, []);
 
-  const canUpload = (step === 'idle' || step === 'done') && modelLoaded;
+  const canUpload = (step === 'idle' || step === 'done') && (uploadMode === 'pixel' || modelLoaded);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -497,6 +565,36 @@ export default function Home() {
                 上传图片
               </h2>
 
+              {/* Upload Mode Selection */}
+              <div className="mb-4">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">选择上传类型：</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant={uploadMode === 'original' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setUploadMode('original')}
+                    className={uploadMode === 'original' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                  >
+                    <ImageIcon className="w-4 h-4 mr-1" />
+                    原图（需抠图）
+                  </Button>
+                  <Button
+                    variant={uploadMode === 'pixel' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setUploadMode('pixel')}
+                    className={uploadMode === 'pixel' ? 'bg-purple-600 hover:bg-purple-700' : ''}
+                  >
+                    <Grid3X3 className="w-4 h-4 mr-1" />
+                    像素图纸
+                  </Button>
+                </div>
+                {uploadMode === 'pixel' && (
+                  <p className="text-xs text-slate-500 mt-2">
+                    上传已有的像素图纸，系统将自动识别网格并填充MARD色号
+                  </p>
+                )}
+              </div>
+
               {/* Upload Zone */}
               <div
                 onClick={handleUploadClick}
@@ -559,7 +657,12 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm">处理完成 - {gridSize}×{gridSize} 网格纸 {useAnimeImage ? '(动漫风格)' : ''}</span>
+                  <span className="text-sm">
+                    {uploadMode === 'pixel' 
+                      ? `像素图纸处理完成 - 检测到 ${pixelGridSize || gridSize}×${pixelGridSize || gridSize} 网格`
+                      : `处理完成 - ${gridSize}×{gridSize} 网格纸 ${useAnimeImage ? '(动漫风格)' : ''}`
+                    }
+                  </span>
                 </div>
               )}
 
@@ -577,105 +680,129 @@ export default function Home() {
               {/* Action Buttons */}
               {step === 'done' && (
                 <div className="mt-6 space-y-3">
-                  {/* Anime Transform Button */}
-                  <Button
-                    onClick={handleTransformAnime}
-                    disabled={isTransformingAnime || !removedBgImage}
-                    variant="outline"
-                    className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
-                  >
-                    {isTransformingAnime ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        正在转换为动漫风格...
-                      </>
-                    ) : animeImage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        重新生成动漫风格
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        转换为动漫风格
-                      </>
-                    )}
-                  </Button>
+                  {/* Pixel art mode: show different buttons */}
+                  {uploadMode === 'pixel' ? (
+                    <>
+                      {/* Download and Reset */}
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={handleDownloadBeadPattern}
+                          className="flex-1 bg-purple-600 hover:bg-purple-700"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          下载拼豆图纸
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleReset}
+                        >
+                          重新开始
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Anime Transform Button */}
+                      <Button
+                        onClick={handleTransformAnime}
+                        disabled={isTransformingAnime || !removedBgImage}
+                        variant="outline"
+                        className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                      >
+                        {isTransformingAnime ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            正在转换为动漫风格...
+                          </>
+                        ) : animeImage ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            重新生成动漫风格
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            转换为动漫风格
+                          </>
+                        )}
+                      </Button>
 
-                  {/* Pixelate Button */}
-                  <Button
-                    onClick={handlePixelate}
-                    disabled={isPixelating || (!removedBgImage && !animeImage)}
-                    variant="outline"
-                    className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
-                  >
-                    {isPixelating ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        正在像素化处理...
-                      </>
-                    ) : pixelatedImage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        重新生成像素化
-                      </>
-                    ) : (
-                      <>
-                        <Grid2X2 className="w-4 h-4 mr-2" />
-                        像素化处理
-                      </>
-                    )}
-                  </Button>
+                      {/* Pixelate Button */}
+                      <Button
+                        onClick={handlePixelate}
+                        disabled={isPixelating || (!removedBgImage && !animeImage)}
+                        variant="outline"
+                        className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
+                      >
+                        {isPixelating ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            正在像素化处理...
+                          </>
+                        ) : pixelatedImage ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            重新生成像素化
+                          </>
+                        ) : (
+                          <>
+                            <Grid2X2 className="w-4 h-4 mr-2" />
+                            像素化处理
+                          </>
+                        )}
+                      </Button>
 
-                  {/* Bead Pattern Button */}
-                  <Button
-                    onClick={handleGenerateBeadPattern}
-                    disabled={isGeneratingBeadPattern || !pixelatedImage}
-                    variant="outline"
-                    className="w-full border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/20"
-                  >
-                    {isGeneratingBeadPattern ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        正在生成拼豆图纸...
-                      </>
-                    ) : beadPatternImage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        重新生成拼豆图纸
-                      </>
-                    ) : (
-                      <>
-                        <Beaker className="w-4 h-4 mr-2" />
-                        生成拼豆图纸
-                      </>
-                    )}
-                  </Button>
+                      {/* Bead Pattern Button */}
+                      <Button
+                        onClick={handleGenerateBeadPattern}
+                        disabled={isGeneratingBeadPattern || !pixelatedImage}
+                        variant="outline"
+                        className="w-full border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/20"
+                      >
+                        {isGeneratingBeadPattern ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            正在生成拼豆图纸...
+                          </>
+                        ) : beadPatternImage ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            重新生成拼豆图纸
+                          </>
+                        ) : (
+                          <>
+                            <Beaker className="w-4 h-4 mr-2" />
+                            生成拼豆图纸
+                          </>
+                        )}
+                      </Button>
 
-                  {/* Download and Reset */}
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={handleDownload}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      下载抠图
-                    </Button>
-                    <Button
-                      onClick={handleDownloadOriginal}
-                      variant="outline"
-                      className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      下载原图
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleReset}
-                    >
-                      重新开始
-                    </Button>
-                  </div>
+                      {/* Download and Reset */}
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={handleDownload}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          下载抠图
+                        </Button>
+                        <Button
+                          onClick={handleDownloadOriginal}
+                          variant="outline"
+                          className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          下载原图
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleReset}
+                        >
+                          重新开始
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -686,8 +813,8 @@ export default function Home() {
             <CardContent className="p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <ImageIcon className="w-5 h-5" />
-                处理结果
-                {finalImage && (
+                {uploadMode === 'pixel' ? '拼豆图纸' : '处理结果'}
+                {finalImage && uploadMode !== 'pixel' && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
                     ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
                   </span>
@@ -3011,5 +3138,407 @@ async function generateBeadPatternHD(
 
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = subjectImageUrl;
+  });
+}
+
+// Detect grid size from pixel art image by analyzing grid lines
+function detectGridSize(imageData: ImageData): number {
+  const { width, height, data } = imageData;
+  
+  // Analyze horizontal and vertical lines
+  const horizontalLines: number[] = [];
+  const verticalLines: number[] = [];
+  
+  // Detect horizontal lines (rows with consistent dark pixels)
+  for (let y = 0; y < height; y++) {
+    let darkPixels = 0;
+    let totalPixels = 0;
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const brightness = (r + g + b) / 3;
+      if (brightness < 50) darkPixels++;
+      totalPixels++;
+    }
+    // If more than 80% of the row is dark, it's likely a grid line
+    if (darkPixels / totalPixels > 0.8) {
+      horizontalLines.push(y);
+    }
+  }
+  
+  // Detect vertical lines (columns with consistent dark pixels)
+  for (let x = 0; x < width; x++) {
+    let darkPixels = 0;
+    let totalPixels = 0;
+    for (let y = 0; y < height; y++) {
+      const idx = (y * width + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const brightness = (r + g + b) / 3;
+      if (brightness < 50) darkPixels++;
+      totalPixels++;
+    }
+    if (darkPixels / totalPixels > 0.8) {
+      verticalLines.push(x);
+    }
+  }
+  
+  // Calculate average spacing between lines
+  const calculateSpacing = (lines: number[]): number => {
+    if (lines.length < 2) return 0;
+    const spacings: number[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      spacings.push(lines[i] - lines[i - 1]);
+    }
+    // Find most common spacing
+    const sortedSpacings = spacings.sort((a, b) => a - b);
+    const medianSpacing = sortedSpacings[Math.floor(sortedSpacings.length / 2)];
+    return medianSpacing;
+  };
+  
+  const hSpacing = calculateSpacing(horizontalLines);
+  const vSpacing = calculateSpacing(verticalLines);
+  const avgSpacing = Math.max(hSpacing, vSpacing);
+  
+  if (avgSpacing > 0) {
+    // Estimate grid count
+    const gridCount = Math.round(Math.min(width, height) / avgSpacing);
+    // Round to common grid sizes
+    const commonSizes = [15, 20, 25, 32, 40, 50, 52, 64, 80, 100];
+    let closestSize = commonSizes[0];
+    let minDiff = Math.abs(gridCount - closestSize);
+    for (const size of commonSizes) {
+      const diff = Math.abs(gridCount - size);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestSize = size;
+      }
+    }
+    return closestSize;
+  }
+  
+  return 0; // Could not detect
+}
+
+// Process pixel art image and generate bead pattern
+async function processPixelArt(
+  imageUrl: string,
+  gridSize: number,
+  scale: number = 3
+): Promise<{ image: string; legend: Array<MardColor & { count: number }>; detectedGridSize: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const srcCanvas = document.createElement('canvas');
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) {
+        reject(new Error('无法创建源画布'));
+        return;
+      }
+      
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      srcCtx.drawImage(img, 0, 0);
+      
+      const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
+      const srcData = srcImageData.data;
+      
+      // Auto-detect grid size if not provided
+      let detectedGridSize = gridSize;
+      if (gridSize === 0) {
+        detectedGridSize = detectGridSize(srcImageData);
+        if (detectedGridSize === 0) {
+          // Default to 25 if detection fails
+          detectedGridSize = 25;
+        }
+      }
+      
+      // Calculate cell size in source image
+      const srcCellSizeX = img.width / detectedGridSize;
+      const srcCellSizeY = img.height / detectedGridSize;
+      
+      // Identify colored cells and their colors
+      const coloredCells = new Set<string>();
+      const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
+      
+      for (let cellY = 0; cellY < detectedGridSize; cellY++) {
+        for (let cellX = 0; cellX < detectedGridSize; cellX++) {
+          const startX = Math.floor(cellX * srcCellSizeX);
+          const startY = Math.floor(cellY * srcCellSizeY);
+          const endX = Math.floor((cellX + 1) * srcCellSizeX);
+          const endY = Math.floor((cellY + 1) * srcCellSizeY);
+          
+          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+          let pixelCount = 0;
+          
+          for (let y = startY; y < endY && y < img.height; y++) {
+            for (let x = startX; x < endX && x < img.width; x++) {
+              const idx = (y * img.width + x) * 4;
+              totalR += srcData[idx];
+              totalG += srcData[idx + 1];
+              totalB += srcData[idx + 2];
+              totalA += srcData[idx + 3];
+              pixelCount++;
+            }
+          }
+          
+          if (pixelCount > 0) {
+            const avgR = Math.round(totalR / pixelCount);
+            const avgG = Math.round(totalG / pixelCount);
+            const avgB = Math.round(totalB / pixelCount);
+            const avgA = Math.round(totalA / pixelCount);
+            
+            // Skip grid lines (dark lines) and background (transparent or white)
+            const brightness = (avgR + avgG + avgB) / 3;
+            if (avgA > 10 && brightness > 30) { // Not a grid line and not transparent
+              const key = `${cellX},${cellY}`;
+              coloredCells.add(key);
+              cellColors.set(key, { avgR, avgG, avgB });
+            }
+          }
+        }
+      }
+      
+      // Match colors to MARD
+      const colorUsageCount = new Map<string, number>();
+      const mardColorMap = new Map<string, MardColor>();
+      
+      for (const key of coloredCells) {
+        const color = cellColors.get(key)!;
+        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
+        mardColorMap.set(key, mardColor);
+        const count = colorUsageCount.get(mardColor.code) || 0;
+        colorUsageCount.set(mardColor.code, count + 1);
+      }
+      
+      // Limit colors to max 20
+      const MAX_COLORS = 20;
+      let selectedColors: MardColor[];
+      
+      if (colorUsageCount.size <= MAX_COLORS) {
+        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
+          const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
+          return mardColorMap.get(key)!;
+        });
+      } else {
+        const sortedColors = Array.from(colorUsageCount.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_COLORS)
+          .map(([code]) => {
+            const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
+            return mardColorMap.get(key)!;
+          });
+        selectedColors = sortedColors;
+      }
+      
+      const selectedColorCodes = new Set(selectedColors.map(c => c.code));
+      
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 255, g: 255, b: 255 };
+      };
+      
+      // Create HD canvas
+      const gridAreaSize = 800 * scale;
+      const marginSize = 50 * scale;
+      const legendWidth = 200 * scale;
+      const gridTotalSize = gridAreaSize + marginSize * 2;
+      const totalWidth = gridTotalSize + legendWidth;
+      const totalHeight = gridTotalSize;
+      const cellSize = gridAreaSize / detectedGridSize;
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = totalWidth;
+      canvas.height = totalHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      // Fill with white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, totalWidth, totalHeight);
+      
+      const offsetX = marginSize;
+      const offsetY = marginSize;
+      
+      // Draw colored cells with MARD colors
+      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
+      const drawnBlocks: Array<{
+        x: number;
+        y: number;
+        color: MardColor;
+        rgbR: number;
+        rgbG: number;
+        rgbB: number;
+      }> = [];
+      
+      const finalColorCount = new Map<string, number>();
+      const colorMap = new Map<string, MardColor>();
+      
+      for (const key of coloredCells) {
+        const [gridX, gridY] = key.split(',').map(Number);
+        const x = offsetX + gridX * cellSize;
+        const y = offsetY + gridY * cellSize;
+        
+        let mardColor = mardColorMap.get(key)!;
+        
+        if (!selectedColorCodes.has(mardColor.code)) {
+          const srcColor = cellColors.get(key)!;
+          let minDist = Infinity;
+          for (const color of selectedColors) {
+            const rgb = hexToRgb(color.hex);
+            const dist = Math.sqrt(
+              Math.pow(srcColor.avgR - rgb.r, 2) +
+              Math.pow(srcColor.avgG - rgb.g, 2) +
+              Math.pow(srcColor.avgB - rgb.b, 2)
+            );
+            if (dist < minDist) {
+              minDist = dist;
+              mardColor = color;
+            }
+          }
+        }
+        
+        const finalRgb = hexToRgb(mardColor.hex);
+        
+        ctx.fillStyle = mardColor.hex;
+        ctx.fillRect(x, y, cellSize, cellSize);
+        
+        drawnBlocks.push({
+          x, y,
+          color: mardColor,
+          rgbR: finalRgb.r,
+          rgbG: finalRgb.g,
+          rgbB: finalRgb.b
+        });
+        
+        if (!colorMap.has(mardColor.code)) {
+          colorMap.set(mardColor.code, mardColor);
+        }
+        
+        const count = finalColorCount.get(mardColor.code) || 0;
+        finalColorCount.set(mardColor.code, count + 1);
+      }
+      
+      // Draw grid lines
+      ctx.strokeStyle = '#cccccc';
+      ctx.lineWidth = 1;
+      
+      for (let i = 0; i <= detectedGridSize; i++) {
+        const pos = Math.floor(offsetX + i * cellSize);
+        
+        // Vertical line
+        ctx.beginPath();
+        ctx.moveTo(pos, offsetY);
+        ctx.lineTo(pos, offsetY + gridAreaSize);
+        ctx.stroke();
+        
+        // Horizontal line
+        ctx.beginPath();
+        ctx.moveTo(offsetX, offsetY + i * cellSize);
+        ctx.lineTo(offsetX + gridAreaSize, offsetY + i * cellSize);
+        ctx.stroke();
+      }
+      
+      // Draw row and column numbers
+      ctx.fillStyle = '#666666';
+      ctx.font = `bold ${12 * scale}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      for (let i = 0; i < detectedGridSize; i++) {
+        // Row numbers (left side)
+        const y = offsetY + (i + 0.5) * cellSize;
+        ctx.fillText(String(detectedGridSize - i), marginSize / 2, y);
+        
+        // Column numbers (top)
+        const x = offsetX + (i + 0.5) * cellSize;
+        ctx.fillText(String(i + 1), x, marginSize / 2);
+      }
+      
+      // Draw MARD color codes
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      for (const block of drawnBlocks) {
+        const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
+        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.fillText(block.color.code, block.x + cellSize / 2, block.y + cellSize / 2);
+      }
+      
+      // Draw color legend
+      const legendX = gridTotalSize + 20 * scale;
+      const legendStartY = marginSize;
+      const colorBoxSize = 30 * scale;
+      const legendItemHeight = 40 * scale;
+      
+      ctx.fillStyle = '#333333';
+      ctx.font = `bold ${16 * scale}px Arial`;
+      ctx.textAlign = 'left';
+      ctx.fillText('色号图例', legendX, legendStartY - 10 * scale);
+      
+      const sortedColors = Array.from(finalColorCount.entries())
+        .sort((a, b) => b[1] - a[1]);
+      
+      sortedColors.forEach(([code, count], index) => {
+        const y = legendStartY + index * legendItemHeight;
+        const color = colorMap.get(code)!;
+        const rgb = hexToRgb(color.hex);
+        
+        // Draw color box
+        ctx.fillStyle = color.hex;
+        ctx.fillRect(legendX, y, colorBoxSize, colorBoxSize);
+        ctx.strokeStyle = '#cccccc';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(legendX, y, colorBoxSize, colorBoxSize);
+        
+        // Draw color code and count
+        const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.font = `bold ${12 * scale}px Arial`;
+        ctx.fillText(code, legendX + colorBoxSize / 2, y + colorBoxSize / 2 + 4 * scale);
+        
+        // Draw count
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'left';
+        ctx.font = `${14 * scale}px Arial`;
+        ctx.fillText(`×${count}`, legendX + colorBoxSize + 10 * scale, y + colorBoxSize / 2 + 5 * scale);
+      });
+      
+      // Total count
+      const totalBeads = Array.from(finalColorCount.values()).reduce((a, b) => a + b, 0);
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'left';
+      ctx.font = `bold ${14 * scale}px Arial`;
+      ctx.fillText(`总计: ${totalBeads} 颗`, legendX, legendStartY + sortedColors.length * legendItemHeight + 20 * scale);
+      
+      const legend = sortedColors.map(([code, color]) => ({
+        ...colorMap.get(code)!,
+        count: finalColorCount.get(code) || 0
+      }));
+      
+      resolve({
+        image: canvas.toDataURL('image/png'),
+        legend,
+        detectedGridSize
+      });
+    };
+    
+    img.onerror = () => reject(new Error('无法加载图片'));
+    img.src = imageUrl;
   });
 }
