@@ -879,86 +879,88 @@ export default function Home() {
           </Card>
         </div>
 
-        {/* Preview Cards */}
-        <div className="grid md:grid-cols-2 gap-6 mt-6">
-          {/* Original Cutout Preview */}
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                抠图预览（透明背景）
-              </h3>
-              <div 
-                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                style={removedBgImage ? {
-                  backgroundImage: `
-                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                  `,
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                  backgroundColor: '#fff',
-                } : {}}
-              >
-                {removedBgImage ? (
-                  <img
-                    src={removedBgImage}
-                    alt="抠图结果"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : (
-                  <span className="text-slate-400 text-sm">等待抠图...</span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Preview Cards - Only for original mode */}
+        {uploadMode === 'original' && (
+          <div className="grid md:grid-cols-2 gap-6 mt-6">
+            {/* Original Cutout Preview */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                  抠图预览（透明背景）
+                </h3>
+                <div 
+                  className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                  style={removedBgImage ? {
+                    backgroundImage: `
+                      linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                      linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                    `,
+                    backgroundSize: '20px 20px',
+                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                    backgroundColor: '#fff',
+                  } : {}}
+                >
+                  {removedBgImage ? (
+                    <img
+                      src={removedBgImage}
+                      alt="抠图结果"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-sm">等待抠图...</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Anime Preview */}
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
-                动漫抠图预览
-              </h3>
-              <div 
-                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                style={animeImage ? {
-                  backgroundImage: `
-                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                  `,
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                  backgroundColor: '#fff',
-                } : {}}
-              >
-                {animeWithEdge ? (
-                  <img
-                    src={animeWithEdge}
-                    alt="动漫风格抠图结果（带边缘线）"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : animeImage ? (
-                  <img
-                    src={animeImage}
-                    alt="动漫风格抠图结果"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : (
-                  <span className="text-slate-400 text-sm">
-                    {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
-                  </span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            {/* Anime Preview */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  动漫抠图预览
+                </h3>
+                <div 
+                  className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                  style={animeImage ? {
+                    backgroundImage: `
+                      linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                      linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                    `,
+                    backgroundSize: '20px 20px',
+                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                    backgroundColor: '#fff',
+                  } : {}}
+                >
+                  {animeWithEdge ? (
+                    <img
+                      src={animeWithEdge}
+                      alt="动漫风格抠图结果（带边缘线）"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : animeImage ? (
+                    <img
+                      src={animeImage}
+                      alt="动漫风格抠图结果"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-sm">
+                      {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        {/* Pixelated Result Section */}
-        {pixelatedImage && (
+        {/* Pixelated Result Section - Only for original mode */}
+        {uploadMode === 'original' && pixelatedImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -992,8 +994,8 @@ export default function Home() {
           </Card>
         )}
 
-        {/* Bead Pattern Result Section */}
-        {beadPatternImage && (
+        {/* Bead Pattern Result Section - Only for original mode */}
+        {uploadMode === 'original' && beadPatternImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -1052,59 +1054,90 @@ export default function Home() {
         {/* Instructions */}
         <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
           <h3 className="text-lg font-semibold mb-4">使用说明</h3>
-          <div className="grid sm:grid-cols-5 gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
+          {uploadMode === 'pixel' ? (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-purple-600 dark:text-purple-400 font-semibold">1</span>
+                </div>
+                <div>
+                  <p className="font-medium">上传像素图纸</p>
+                  <p className="text-sm text-slate-500">选择带有网格线的像素图纸</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium">选择网格</p>
-                <p className="text-sm text-slate-500">选择网格规格</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
-              </div>
-              <div>
-                <p className="font-medium">上传图片</p>
-                <p className="text-sm text-slate-500">选择人物照片</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
-              </div>
-              <div>
-                <p className="font-medium">AI 抠图</p>
-                <p className="text-sm text-slate-500">自动移除背景</p>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-purple-600 dark:text-purple-400 font-semibold">2</span>
+                </div>
+                <div>
+                  <p className="font-medium">自动生成拼豆图纸</p>
+                  <p className="text-sm text-slate-500">系统自动检测网格并填充色号</p>
+                </div>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-purple-600 dark:text-purple-400 font-semibold">4</span>
+          ) : (
+            <div className="grid sm:grid-cols-5 gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
+                </div>
+                <div>
+                  <p className="font-medium">选择网格</p>
+                  <p className="text-sm text-slate-500">选择网格规格</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium">动漫转换</p>
-                <p className="text-sm text-slate-500">可选动漫风格</p>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
+                </div>
+                <div>
+                  <p className="font-medium">上传图片</p>
+                  <p className="text-sm text-slate-500">选择人物照片</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">3</span>
+                </div>
+                <div>
+                  <p className="font-medium">AI 抠图</p>
+                  <p className="text-sm text-slate-500">自动移除背景</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-purple-600 dark:text-purple-400 font-semibold">4</span>
+                </div>
+                <div>
+                  <p className="font-medium">动漫转换</p>
+                  <p className="text-sm text-slate-500">可选动漫风格</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
+                </div>
+                <div>
+                  <p className="font-medium">下载结果</p>
+                  <p className="text-sm text-slate-500">获取网格图片</p>
+                </div>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
-              </div>
-              <div>
-                <p className="font-medium">下载结果</p>
-                <p className="text-sm text-slate-500">获取网格图片</p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Tips */}
         <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
+            {uploadMode === 'pixel' ? (
+              <>
+                <strong>提示：</strong>上传的像素图纸应包含清晰的网格线（深色线条）。系统将自动检测网格数量并对每个网格单元填充对应的 MARD 色号。
+              </>
+            ) : (
+              <>
+                <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
+              </>
+            )}
           </p>
         </div>
       </div>
