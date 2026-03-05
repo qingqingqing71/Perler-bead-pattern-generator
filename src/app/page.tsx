@@ -2535,8 +2535,15 @@ async function generateBeadPattern(
       const colorMap = new Map<string, MardColor>();
 
       // Calculate font size based on pixel size - text should fit within the grid cell
+      // Color codes are typically 2-3 characters (e.g., "A1", "B12")
       // Use smaller font for smaller grids to ensure text doesn't overflow
-      const fontSize = Math.max(5, Math.floor(pixelSize * 0.35));
+      // For 2-char codes: max width should be ~60% of cell size
+      // For 3-char codes: max width should be ~80% of cell size
+      const estimatedCharWidth = pixelSize * 0.25; // Rough estimate for monospace-like width
+      const maxTextWidth = pixelSize * 0.7; // Leave some padding
+      const fontSizeFromWidth = Math.floor(maxTextWidth / 2.5); // Assume max 2.5 chars width
+      const fontSizeFromHeight = Math.floor(pixelSize * 0.45); // Height constraint
+      const fontSize = Math.max(4, Math.min(fontSizeFromWidth, fontSizeFromHeight, Math.floor(pixelSize * 0.35)));
       
       // Store blocks info for drawing text later
       const blocksInfo: Array<{
@@ -2930,7 +2937,11 @@ async function generateBeadPatternHD(
       const offsetY = marginSize + Math.floor((gridSize - srcCellCountY) / 2) * cellSize;
       
       // Step 8: Fill ALL cells inside outline and track final color usage
-      const fontSize = Math.max(12, Math.floor(cellSize * 0.4));
+      // Calculate font size to fit within cell - color codes are typically 2-3 chars
+      const maxTextWidth = cellSize * 0.75; // Leave padding on sides
+      const fontSizeFromWidth = Math.floor(maxTextWidth / 2.5); // Assume max 2.5 chars
+      const fontSizeFromHeight = Math.floor(cellSize * 0.5); // Height constraint
+      const fontSize = Math.max(8, Math.min(fontSizeFromWidth, fontSizeFromHeight, Math.floor(cellSize * 0.4)));
       const drawnBlocks: Array<{
         x: number;
         y: number;
