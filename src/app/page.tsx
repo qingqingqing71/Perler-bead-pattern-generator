@@ -56,6 +56,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [gridSize, setGridSize] = useState(25);
   const [useAnimeImage, setUseAnimeImage] = useState(false);
+  const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
@@ -149,6 +150,11 @@ export default function Home() {
     setAnimeImage(null);
     setAnimeWithEdge(null);
     setUseAnimeImage(false);
+    setIsAlreadyAnime(false);
+    setPixelatedImage(null);
+    setPixelatedSubject(null);
+    setBeadPatternImage(null);
+    setBeadPatternLegend([]);
 
     try {
       setStep('uploading');
@@ -419,6 +425,7 @@ export default function Home() {
     setBeadPatternImage(null);
     setBeadPatternLegend([]);
     setUseAnimeImage(false);
+    setIsAlreadyAnime(false);
     setStep('idle');
     setProgress(0);
     setError(null);
@@ -577,30 +584,55 @@ export default function Home() {
               {/* Action Buttons */}
               {step === 'done' && (
                 <div className="mt-6 space-y-3">
-                  {/* Anime Transform Button */}
-                  <Button
-                    onClick={handleTransformAnime}
-                    disabled={isTransformingAnime || !removedBgImage}
-                    variant="outline"
-                    className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
-                  >
-                    {isTransformingAnime ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        正在转换为动漫风格...
-                      </>
-                    ) : animeImage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        重新生成动漫风格
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        转换为动漫风格
-                      </>
-                    )}
-                  </Button>
+                  {/* Already Anime Style Checkbox */}
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isAlreadyAnime}
+                        onChange={(e) => {
+                          setIsAlreadyAnime(e.target.checked);
+                          if (e.target.checked) {
+                            setUseAnimeImage(false);
+                            if (removedBgWithEdge) {
+                              setFinalImage(removedBgWithEdge);
+                            }
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 rounded border-blue-300 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-blue-700 dark:text-blue-300">
+                        原图已是动漫风格，跳过动漫转换
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Anime Transform Button - only show if not already anime */}
+                  {!isAlreadyAnime && (
+                    <Button
+                      onClick={handleTransformAnime}
+                      disabled={isTransformingAnime || !removedBgImage}
+                      variant="outline"
+                      className="w-full border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                    >
+                      {isTransformingAnime ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          正在转换为动漫风格...
+                        </>
+                      ) : animeImage ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          重新生成动漫风格
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          转换为动漫风格
+                        </>
+                      )}
+                    </Button>
+                  )}
 
                   {/* Pixelate Button */}
                   <Button
