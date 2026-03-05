@@ -327,10 +327,11 @@ export default function Home() {
     setError(null);
 
     try {
-      // 当动漫输入且放大2倍时，网格数也乘以2
-      const effectiveSize = isAlreadyAnime && upscaleFactor === 2 ? gridSize * 2 : gridSize;
-      setEffectiveGridSize(effectiveSize);
-      const result = await pixelateImage(sourceImage, effectiveSize, isAlreadyAnime);
+      // 网格数保持不变（无论放大倍数）
+      // 2倍放大时：图片放大2倍，占比变成1.5倍（0.9 * 1.5 = 1.35）
+      setEffectiveGridSize(gridSize);
+      const scaleRatio = isAlreadyAnime && upscaleFactor === 2 ? 0.9 * 1.5 : 0.9;
+      const result = await pixelateImage(sourceImage, gridSize, isAlreadyAnime, scaleRatio);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
@@ -961,7 +962,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridSize}×{effectiveGridSize} 像素{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')})
+                    ({effectiveGridSize}×{effectiveGridSize} 像素{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')}{isAlreadyAnime && upscaleFactor === 2 ? ', 2倍放大' : ''})
                   </span>
                 </h2>
                 <Button
@@ -996,7 +997,7 @@ export default function Home() {
                   <Beaker className="w-5 h-5 text-orange-600" />
                   拼豆图纸
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridSize}×{effectiveGridSize} 格{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')})
+                    ({effectiveGridSize}×{effectiveGridSize} 格{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')}{isAlreadyAnime && upscaleFactor === 2 ? ', 2倍放大' : ''})
                   </span>
                 </h2>
                 <Button
@@ -1770,7 +1771,7 @@ async function upscaleImage(imageUrl: string, factor: number): Promise<string> {
   });
 }
 
-async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false): Promise<PixelateResult> {
+async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false, scaleRatio: number = 0.9): Promise<PixelateResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1799,9 +1800,10 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
       const gridSize = 800;
       const cellSize = gridSize / gridCount;
       
-      // Max dimension (width or height) = grid size * 0.9, keep aspect ratio
+      // Max dimension (width or height) = grid size * scaleRatio, keep aspect ratio
+      // scaleRatio: 0.9 for normal, 1.35 (0.9*1.5) for 2x upscale
       const maxDimension = Math.max(imgWidth, imgHeight);
-      const targetMaxSize = gridSize * 0.9;
+      const targetMaxSize = gridSize * scaleRatio;
       const scaleFactor = targetMaxSize / maxDimension;
       
       // Align size to grid cells
