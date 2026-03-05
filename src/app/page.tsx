@@ -1797,17 +1797,13 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
       const srcData = srcImageData.data;
 
       // Step 2: Calculate subject size and position on grid
-      // Base grid size is 800, but may be enlarged for 2x upscale
-      const baseGridSize = 800;
-      // When scaleRatio > 0.9, we need to enlarge the canvas to fit the upscaled subject
-      // Actual grid size = baseGridSize * max(1, scaleRatio / 0.9)
-      const gridSize = Math.round(baseGridSize * Math.max(1, scaleRatio / 0.9));
+      const gridSize = 800;
       const cellSize = gridSize / gridCount;
       
-      // Subject occupies 90% of the base canvas (or proportionally more of enlarged canvas)
-      // Target size = baseGridSize * 0.9, then scaled by scaleRatio/0.9 if enlarged
+      // Max dimension (width or height) = grid size * scaleRatio, keep aspect ratio
+      // scaleRatio: 0.9 for normal, 1.35 (0.9*1.5) for 2x upscale
       const maxDimension = Math.max(imgWidth, imgHeight);
-      const targetMaxSize = baseGridSize * scaleRatio; // This equals gridSize * 0.9 when enlarged
+      const targetMaxSize = gridSize * scaleRatio;
       const scaleFactor = targetMaxSize / maxDimension;
       
       // Align size to grid cells
@@ -1822,7 +1818,7 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
       const cellCountX = Math.round(alignedWidth / cellSize);
       const cellCountY = Math.round(alignedHeight / cellSize);
 
-      // Step 3: Pixelate ONLY the subject (on canvas, centered)
+      // Step 3: Pixelate ONLY the subject (on 800x800 canvas, centered)
       const subjectCanvas = document.createElement('canvas');
       const subjectCtx = subjectCanvas.getContext('2d');
       
@@ -1831,7 +1827,7 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
         return;
       }
 
-      // Use dynamic canvas size for subject, so it's already centered
+      // Use 800x800 canvas for subject, so it's already centered
       subjectCanvas.width = gridSize;
       subjectCanvas.height = gridSize;
 
@@ -2699,9 +2695,8 @@ async function generateBeadPatternHD(
       const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
       const srcData = srcImageData.data;
       
-      // Calculate cell size in source image (dynamic based on actual image size)
-      const srcGridSize = img.width; // The pixelated image size matches gridSize used in pixelateImage
-      const srcCellSize = srcGridSize / gridSize;
+      // Calculate cell size in source image
+      const srcCellSize = 800 / gridSize;
       const srcCellCountX = Math.round(img.width / srcCellSize);
       const srcCellCountY = Math.round(img.height / srcCellSize);
       
