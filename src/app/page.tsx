@@ -312,14 +312,15 @@ export default function Home() {
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
+    // 当原图已是动漫风格时，使用原图；否则使用抠图或动漫抠图
+    const sourceImage = isAlreadyAnime ? originalImage : (useAnimeImage && animeImage ? animeImage : removedBgImage);
     if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      const result = await pixelateImage(sourceImage, gridSize);
+      const result = await pixelateImage(sourceImage, gridSize, isAlreadyAnime);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
@@ -328,7 +329,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating]);
+  }, [originalImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -355,11 +356,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = finalImage;
-    link.download = `cutout${useAnimeImage ? '-anime' : ''}.png`;
+    link.download = isAlreadyAnime ? 'original-anime.png' : `cutout${useAnimeImage ? '-anime' : ''}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [finalImage, useAnimeImage]);
+  }, [finalImage, useAnimeImage, isAlreadyAnime]);
 
   // Download original cutout (without edge outline)
   const handleDownloadOriginal = useCallback(() => {
@@ -593,7 +594,11 @@ export default function Home() {
                         onChange={(e) => {
                           setIsAlreadyAnime(e.target.checked);
                           if (e.target.checked) {
+                            // 原图已是动漫风格，直接使用原图
                             setUseAnimeImage(false);
+                            setFinalImage(originalImage);
+                          } else {
+                            // 取消勾选，恢复为抠图结果
                             if (removedBgWithEdge) {
                               setFinalImage(removedBgWithEdge);
                             }
@@ -602,7 +607,7 @@ export default function Home() {
                         className="w-4 h-4 text-blue-600 rounded border-blue-300 focus:ring-blue-500"
                       />
                       <span className="text-sm text-blue-700 dark:text-blue-300">
-                        原图已是动漫风格，跳过动漫转换
+                        原图已是动漫风格，跳过抠图和动漫转换
                       </span>
                     </label>
                   </div>
@@ -637,7 +642,7 @@ export default function Home() {
                   {/* Pixelate Button */}
                   <Button
                     onClick={handlePixelate}
-                    disabled={isPixelating || (!removedBgImage && !animeImage)}
+                    disabled={isPixelating || (!isAlreadyAnime && !removedBgImage && !animeImage) || (isAlreadyAnime && !originalImage)}
                     variant="outline"
                     className="w-full border-green-300 text-green-600 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950/20"
                   >
@@ -691,16 +696,18 @@ export default function Home() {
                       className="flex-1 bg-blue-600 hover:bg-blue-700"
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      下载抠图
+                      {isAlreadyAnime ? '下载图片' : '下载抠图'}
                     </Button>
-                    <Button
-                      onClick={handleDownloadOriginal}
-                      variant="outline"
-                      className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      下载原图
-                    </Button>
+                    {!isAlreadyAnime && (
+                      <Button
+                        onClick={handleDownloadOriginal}
+                        variant="outline"
+                        className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        下载原图
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       onClick={handleReset}
@@ -721,14 +728,16 @@ export default function Home() {
                 处理结果
                 {finalImage && (
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)
+                    {isAlreadyAnime ? '(原图，动漫风格)' : `(${useAnimeImage ? '动漫风格' : '原图抠图'}，带边缘线)`}
                   </span>
                 )}
               </h2>
 
               <div 
                 className="aspect-square rounded-xl overflow-hidden flex items-center justify-center"
-                style={finalImage ? {
+                style={finalImage ? (isAlreadyAnime ? {
+                  backgroundColor: '#fff',
+                } : {
                   backgroundImage: `
                     linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
                     linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
@@ -738,7 +747,7 @@ export default function Home() {
                   backgroundSize: '20px 20px',
                   backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
                   backgroundColor: '#fff',
-                } : {
+                }) : {
                   backgroundColor: '#f1f5f9',
                 }}
               >
@@ -784,15 +793,17 @@ export default function Home() {
 
         {/* Preview Cards */}
         <div className="grid md:grid-cols-2 gap-6 mt-6">
-          {/* Original Cutout Preview */}
+          {/* Original Cutout Preview OR Original Anime Preview */}
           <Card>
             <CardContent className="p-4">
               <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
-                抠图预览（透明背景）
+                {isAlreadyAnime ? '原图预览（动漫风格）' : '抠图预览（透明背景）'}
               </h3>
               <div 
                 className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                style={removedBgImage ? {
+                style={(isAlreadyAnime ? originalImage : removedBgImage) ? (isAlreadyAnime ? {
+                  backgroundColor: '#fff',
+                } : {
                   backgroundImage: `
                     linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
                     linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
@@ -802,62 +813,76 @@ export default function Home() {
                   backgroundSize: '20px 20px',
                   backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
                   backgroundColor: '#fff',
-                } : {}}
+                }) : {}}
               >
-                {removedBgImage ? (
-                  <img
-                    src={removedBgImage}
-                    alt="抠图结果"
-                    className="max-w-full max-h-full object-contain"
-                  />
+                {isAlreadyAnime ? (
+                  originalImage ? (
+                    <img
+                      src={originalImage}
+                      alt="原图（动漫风格）"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-sm">等待上传...</span>
+                  )
                 ) : (
-                  <span className="text-slate-400 text-sm">等待抠图...</span>
+                  removedBgImage ? (
+                    <img
+                      src={removedBgImage}
+                      alt="抠图结果"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-sm">等待抠图...</span>
+                  )
                 )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Anime Preview */}
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
-                动漫抠图预览
-              </h3>
-              <div 
-                className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-                style={animeImage ? {
-                  backgroundImage: `
-                    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
-                    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
-                  `,
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                  backgroundColor: '#fff',
-                } : {}}
-              >
-                {animeWithEdge ? (
-                  <img
-                    src={animeWithEdge}
-                    alt="动漫风格抠图结果（带边缘线）"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : animeImage ? (
-                  <img
-                    src={animeImage}
-                    alt="动漫风格抠图结果"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : (
-                  <span className="text-slate-400 text-sm">
-                    {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
-                  </span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Anime Preview - only show if not already anime */}
+          {!isAlreadyAnime && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-3 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  动漫抠图预览
+                </h3>
+                <div 
+                  className="h-40 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
+                  style={animeImage ? {
+                    backgroundImage: `
+                      linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+                      linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+                      linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)
+                    `,
+                    backgroundSize: '20px 20px',
+                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                    backgroundColor: '#fff',
+                  } : {}}
+                >
+                  {animeWithEdge ? (
+                    <img
+                      src={animeWithEdge}
+                      alt="动漫风格抠图结果（带边缘线）"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : animeImage ? (
+                    <img
+                      src={animeImage}
+                      alt="动漫风格抠图结果"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-slate-400 text-sm">
+                      {removedBgImage ? '点击"转换为动漫风格"按钮' : '等待抠图...'}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Pixelated Result Section */}
@@ -1643,7 +1668,7 @@ interface PixelateResult {
   };
 }
 
-async function pixelateImage(imageUrl: string, gridCount: number): Promise<PixelateResult> {
+async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false): Promise<PixelateResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1735,10 +1760,11 @@ async function pixelateImage(imageUrl: string, gridCount: number): Promise<Pixel
             const avgB = Math.round(totalB / pixelCount);
             const avgA = Math.round(totalA / pixelCount);
             
-            // Only draw if pixel has some opacity (is part of subject)
-            if (avgA > 10) {
+            // 当 isFullImage 为 true 时，处理整张图片（忽略透明度检测）
+            // 否则只绘制有透明度的像素（抠图主体）
+            if (isFullImage || avgA > 10) {
               // Draw at centered position (offsetX, offsetY) on 800x800 canvas
-              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${isFullImage ? 1 : avgA / 255})`;
               subjectCtx.fillRect(
                 offsetX + gridX * cellSize,
                 offsetY + gridY * cellSize,
