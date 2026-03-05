@@ -327,12 +327,10 @@ export default function Home() {
     setError(null);
 
     try {
-      // 网格数保持不变
-      const effectiveSize = gridSize;
+      // 当动漫输入且放大2倍时，网格数也乘以2
+      const effectiveSize = isAlreadyAnime && upscaleFactor === 2 ? gridSize * 2 : gridSize;
       setEffectiveGridSize(effectiveSize);
-      // 传递放大倍数，让图像在网格上占更多格子
-      const imageScale = isAlreadyAnime ? upscaleFactor : 1;
-      const result = await pixelateImage(sourceImage, effectiveSize, isAlreadyAnime, imageScale);
+      const result = await pixelateImage(sourceImage, effectiveSize, isAlreadyAnime);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
@@ -1772,7 +1770,7 @@ async function upscaleImage(imageUrl: string, factor: number): Promise<string> {
   });
 }
 
-async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false, imageScale: number = 1): Promise<PixelateResult> {
+async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false): Promise<PixelateResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1802,12 +1800,8 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
       const cellSize = gridSize / gridCount;
       
       // Max dimension (width or height) = grid size * 0.9, keep aspect ratio
-      // When imageScale > 1, the image has been upscaled and should occupy more grid cells
-      // For upscaled image (2x), we want it to fill more of the canvas (close to 100%)
-      const baseRatio = 0.9;
-      const fillRatio = isFullImage && imageScale > 1 ? Math.min(1.0, baseRatio * imageScale) : baseRatio;
       const maxDimension = Math.max(imgWidth, imgHeight);
-      const targetMaxSize = gridSize * fillRatio;
+      const targetMaxSize = gridSize * 0.9;
       const scaleFactor = targetMaxSize / maxDimension;
       
       // Align size to grid cells
