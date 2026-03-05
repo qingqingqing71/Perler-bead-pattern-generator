@@ -57,6 +57,8 @@ export default function Home() {
   const [gridSize, setGridSize] = useState(25);
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
+  const [upscaleFactor, setUpscaleFactor] = useState<1 | 2>(1); // 放大倍数：1倍或2倍
+  const [upscaledImage, setUpscaledImage] = useState<string | null>(null); // 放大后的图片
   const [isTransformingAnime, setIsTransformingAnime] = useState(false);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
@@ -151,6 +153,8 @@ export default function Home() {
     setAnimeWithEdge(null);
     setUseAnimeImage(false);
     setIsAlreadyAnime(false);
+    setUpscaleFactor(1);
+    setUpscaledImage(null);
     setPixelatedImage(null);
     setPixelatedSubject(null);
     setBeadPatternImage(null);
@@ -312,8 +316,10 @@ export default function Home() {
 
   // Pixelate image - pixelate the anime or original cutout image
   const handlePixelate = useCallback(async () => {
-    // 当原图已是动漫风格时，使用原图；否则使用抠图或动漫抠图
-    const sourceImage = isAlreadyAnime ? originalImage : (useAnimeImage && animeImage ? animeImage : removedBgImage);
+    // 当原图已是动漫风格时，使用放大后的图片或原图；否则使用抠图或动漫抠图
+    const sourceImage = isAlreadyAnime 
+      ? (upscaledImage || originalImage) 
+      : (useAnimeImage && animeImage ? animeImage : removedBgImage);
     if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
@@ -329,7 +335,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [originalImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime]);
+  }, [originalImage, upscaledImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -586,19 +592,33 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 space-y-3">
                   {/* Already Anime Style Checkbox */}
-                  <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg space-y-3">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={isAlreadyAnime}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           setIsAlreadyAnime(e.target.checked);
                           if (e.target.checked) {
-                            // 原图已是动漫风格，直接使用原图
+                            // 原图已是动漫风格，应用放大后使用
                             setUseAnimeImage(false);
-                            setFinalImage(originalImage);
+                            
+                            // 应用放大倍数
+                            if (upscaleFactor > 1 && originalImage) {
+                              try {
+                                const upscaled = await upscaleImage(originalImage, upscaleFactor);
+                                setUpscaledImage(upscaled);
+                                setFinalImage(upscaled);
+                              } catch (err) {
+                                console.error('Upscale error:', err);
+                                setFinalImage(originalImage);
+                              }
+                            } else {
+                              setFinalImage(originalImage);
+                            }
                           } else {
                             // 取消勾选，恢复为抠图结果
+                            setUpscaledImage(null);
                             if (removedBgWithEdge) {
                               setFinalImage(removedBgWithEdge);
                             }
@@ -610,6 +630,46 @@ export default function Home() {
                         原图已是动漫风格，跳过抠图和动漫转换
                       </span>
                     </label>
+                    
+                    {/* Upscale Options - only show when already anime is checked */}
+                    {isAlreadyAnime && (
+                      <div className="flex items-center gap-4 ml-7">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">图片放大：</span>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant={upscaleFactor === 1 ? "default" : "outline"}
+                            onClick={async () => {
+                              setUpscaleFactor(1);
+                              setUpscaledImage(null);
+                              setFinalImage(originalImage);
+                            }}
+                            className={upscaleFactor === 1 ? "bg-blue-600 hover:bg-blue-700" : "border-blue-300 text-blue-600"}
+                          >
+                            1倍（原图）
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={upscaleFactor === 2 ? "default" : "outline"}
+                            onClick={async () => {
+                              setUpscaleFactor(2);
+                              if (originalImage) {
+                                try {
+                                  const upscaled = await upscaleImage(originalImage, 2);
+                                  setUpscaledImage(upscaled);
+                                  setFinalImage(upscaled);
+                                } catch (err) {
+                                  console.error('Upscale error:', err);
+                                }
+                              }
+                            }}
+                            className={upscaleFactor === 2 ? "bg-blue-600 hover:bg-blue-700" : "border-blue-300 text-blue-600"}
+                          >
+                            2倍
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Anime Transform Button - only show if not already anime */}
@@ -1666,6 +1726,41 @@ interface PixelateResult {
     offsetY: number;      // 在800×800画布上的Y偏移（像素）
     cellSize: number;     // 每个网格单元的像素大小
   };
+}
+
+// 放大图片函数
+async function upscaleImage(imageUrl: string, factor: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      // 放大后的尺寸
+      const newWidth = img.width * factor;
+      const newHeight = img.height * factor;
+      
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      
+      // 使用高质量插值放大图片
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      
+      resolve(canvas.toDataURL('image/png'));
+    };
+    
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = imageUrl;
+  });
 }
 
 async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: boolean = false): Promise<PixelateResult> {
