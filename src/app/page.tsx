@@ -55,6 +55,7 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [gridSize, setGridSize] = useState(25);
+  const [effectiveGridSize, setEffectiveGridSize] = useState(25); // 实际使用的网格数（考虑放大倍数）
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 2>(1); // 放大倍数：1倍或2倍
@@ -326,7 +327,10 @@ export default function Home() {
     setError(null);
 
     try {
-      const result = await pixelateImage(sourceImage, gridSize, isAlreadyAnime);
+      // 当动漫输入且放大2倍时，网格数也乘以2
+      const effectiveSize = isAlreadyAnime && upscaleFactor === 2 ? gridSize * 2 : gridSize;
+      setEffectiveGridSize(effectiveSize);
+      const result = await pixelateImage(sourceImage, effectiveSize, isAlreadyAnime);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
@@ -335,7 +339,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [originalImage, upscaledImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime]);
+  }, [originalImage, upscaledImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime, upscaleFactor]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -346,7 +350,7 @@ export default function Home() {
     setError(null);
 
     try {
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 1);
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
     } catch (err) {
@@ -355,7 +359,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedSubject, gridSize, isGeneratingBeadPattern]);
+  }, [pixelatedSubject, effectiveGridSize, isGeneratingBeadPattern]);
 
   const handleDownload = useCallback(() => {
     if (!finalImage) return;
@@ -386,11 +390,11 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${gridSize}x${gridSize}${animeImage ? '-anime' : ''}.png`;
+    link.download = `pixelated-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (animeImage ? '-anime' : '')}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, gridSize, animeImage]);
+  }, [pixelatedImage, effectiveGridSize, animeImage, isAlreadyAnime]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
     // Use pixelated subject (transparent background) directly
@@ -398,11 +402,11 @@ export default function Home() {
 
     try {
       // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedSubject, gridSize, 3);
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3);
       
       const link = document.createElement('a');
       link.href = result.image;
-      link.download = `bead-pattern-hd-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+      link.download = `bead-pattern-hd-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (useAnimeImage ? '-anime' : '')}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -412,13 +416,13 @@ export default function Home() {
       if (beadPatternImage) {
         const link = document.createElement('a');
         link.href = beadPatternImage;
-        link.download = `bead-pattern-${gridSize}x${gridSize}${useAnimeImage ? '-anime' : ''}.png`;
+        link.download = `bead-pattern-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (useAnimeImage ? '-anime' : '')}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, gridSize, animeImage, beadPatternImage, useAnimeImage]);
+  }, [pixelatedSubject, effectiveGridSize, animeImage, beadPatternImage, useAnimeImage, isAlreadyAnime]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -433,6 +437,9 @@ export default function Home() {
     setBeadPatternLegend([]);
     setUseAnimeImage(false);
     setIsAlreadyAnime(false);
+    setUpscaleFactor(1);
+    setUpscaledImage(null);
+    setEffectiveGridSize(25);
     setStep('idle');
     setProgress(0);
     setError(null);
@@ -954,7 +961,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 像素{animeImage ? ', 动漫风格' : ''})
+                    ({effectiveGridSize}×{effectiveGridSize} 像素{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')})
                   </span>
                 </h2>
                 <Button
@@ -989,7 +996,7 @@ export default function Home() {
                   <Beaker className="w-5 h-5 text-orange-600" />
                   拼豆图纸
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({gridSize}×{gridSize} 格{animeImage ? ', 动漫风格' : ''})
+                    ({effectiveGridSize}×{effectiveGridSize} 格{isAlreadyAnime ? ', 动漫风格' : (animeImage ? ', 动漫风格' : '')})
                   </span>
                 </h2>
                 <Button
