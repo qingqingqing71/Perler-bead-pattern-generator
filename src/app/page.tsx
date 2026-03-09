@@ -4,6 +4,8 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Upload,
   Download,
@@ -18,6 +20,8 @@ import {
   Grid2X2,
   Beaker,
   Wand2,
+  Key,
+  LogOut,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 import type { BodySegmenter } from '@tensorflow-models/body-segmentation';
@@ -45,6 +49,16 @@ const GRID_OPTIONS = [
 ];
 
 export default function Home() {
+  // 用户认证状态
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [userId, setUserId] = useState<number | null>(null);
+  const [userName, setUserName] = useState('');
+  const [usageCount, setUsageCount] = useState(0);
+  const [usageLimit, setUsageLimit] = useState(0);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [removedBgImage, setRemovedBgImage] = useState<string | null>(null);
   const [removedBgWithEdge, setRemovedBgWithEdge] = useState<string | null>(null); // 原图抠图带红色边缘线
@@ -73,6 +87,104 @@ export default function Home() {
     segmenter: BodySegmenter | null;
     loaded: boolean;
   }>({ segmenter: null, loaded: false });
+
+  // 用户认证函数
+  const handleAuth = async () => {
+    if (!apiKey.trim()) {
+      setAuthError('请输入访问密钥');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setIsAuthenticated(true);
+        setUserId(data.user.id);
+        setUserName(data.user.name);
+        setUsageCount(data.user.usageCount);
+        setUsageLimit(data.user.usageLimit);
+        localStorage.setItem('apiKey', apiKey);
+      } else {
+        setAuthError(data.error || '认证失败');
+      }
+    } catch {
+      setAuthError('认证失败，请重试');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // 登出函数
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setApiKey('');
+    setUserId(null);
+    setUserName('');
+    setUsageCount(0);
+    setUsageLimit(0);
+    localStorage.removeItem('apiKey');
+  };
+
+  // 记录使用次数
+  const recordUsage = async (action: string, gridSize?: number, upscaleFactor?: number) => {
+    if (!userId) return;
+
+    try {
+      await fetch('/api/usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, action, gridSize, upscaleFactor }),
+      });
+
+      // 更新本地使用计数
+      setUsageCount(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to record usage:', error);
+    }
+  };
+
+  // 检查本地存储的 API Key
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('apiKey');
+    if (savedApiKey) {
+      setApiKey(savedApiKey);
+      // 自动尝试认证
+      const autoAuth = async () => {
+        try {
+          const response = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey: savedApiKey }),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            setIsAuthenticated(true);
+            setUserId(data.user.id);
+            setUserName(data.user.name);
+            setUsageCount(data.user.usageCount);
+            setUsageLimit(data.user.usageLimit);
+          } else {
+            localStorage.removeItem('apiKey');
+          }
+        } catch {
+          localStorage.removeItem('apiKey');
+        }
+      };
+      autoAuth();
+    }
+  }, []);
 
   // Load TensorFlow model on mount
   useEffect(() => {
@@ -465,6 +577,27 @@ export default function Home() {
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
             上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
           </p>
+
+          {/* 用户信息和使用次数 */}
+          {isAuthenticated && (
+            <div className="mt-4 flex items-center justify-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                <span>欢迎，{userName}</span>
+                <span className="text-slate-300">|</span>
+                <span>今日使用：{usageCount} / {usageLimit}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <LogOut className="w-4 h-4 mr-1" />
+                登出
+              </Button>
+            </div>
+          )}
+
           <div className="mt-4 inline-flex items-center gap-2">
             {modelLoaded ? (
               <>
@@ -479,6 +612,59 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* 未认证时的登录界面 */}
+        {!isAuthenticated && (
+          <Card className="max-w-md mx-auto mb-6">
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                <div className="text-center">
+                  <Key className="w-12 h-12 mx-auto text-blue-600 mb-2" />
+                  <h2 className="text-xl font-semibold">请输入访问密钥</h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    您需要访问密钥才能使用此工具
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apiKey">访问密钥</Label>
+                  <div className="relative">
+                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="apiKey"
+                      type="password"
+                      placeholder="请输入您的访问密钥"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                      className="pl-10"
+                    />
+                  </div>
+                  {authError && (
+                    <p className="text-sm text-red-500">{authError}</p>
+                  )}
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={handleAuth}
+                  disabled={isAuthenticating}
+                >
+                  {isAuthenticating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      验证中...
+                    </>
+                  ) : (
+                    '验证并开始使用'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 认证后才显示主功能 */}
+        {isAuthenticated && (
+          <>
 
         {/* Grid Size Selector */}
         <Card className="mb-6">
@@ -1103,6 +1289,8 @@ export default function Home() {
             <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。动漫风格转换需要调用 AI 服务，可能需要几秒钟时间。
           </p>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

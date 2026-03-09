@@ -1,5 +1,31 @@
 # 部署指南
 
+## 环境变量配置
+
+在部署前，需要配置以下环境变量：
+
+```env
+# Supabase 数据库配置（必需）
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# 管理员密钥（可选，默认为 admin_default_key_12345）
+ADMIN_KEY=your_secure_admin_key
+
+# 图像生成 API 配置（如需动漫转换功能）
+COZE_API_KEY=your_coze_api_key
+```
+
+### 获取 Supabase 配置
+
+1. 访问 [https://supabase.com](https://supabase.com) 并注册账号
+2. 创建新项目
+3. 在项目设置中找到：
+   - `URL` → `SUPABASE_URL`
+   - `anon public` → `SUPABASE_ANON_KEY`
+
+---
+
 ## 方案一：Vercel 部署（推荐）
 
 ### 步骤 1：推送代码到 Git 仓库
@@ -27,8 +53,9 @@ git push -u origin main
 3. 点击 "Add New" → "Project"
 4. 选择你刚才推送的仓库
 5. 点击 "Import"
-6. Vercel 会自动检测 Next.js 项目，直接点击 "Deploy"
-7. 等待部署完成，获得 `https://你的项目名.vercel.app` 链接
+6. **在 "Environment Variables" 中添加环境变量**
+7. 点击 "Deploy"
+8. 等待部署完成，获得 `https://你的项目名.vercel.app` 链接
 
 ### 优点
 - 免费额度充足
@@ -55,16 +82,28 @@ ssh user@your-server-ip
 git clone https://github.com/你的用户名/你的仓库名.git
 ```
 
-### 步骤 2：构建并运行
+### 步骤 2：配置环境变量
 
 ```bash
 cd /home/user/你的项目目录
 
+# 创建 .env.local 文件
+cat > .env.local << EOF
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+ADMIN_KEY=your_secure_admin_key
+COZE_API_KEY=your_coze_api_key
+EOF
+```
+
+### 步骤 3：构建并运行
+
+```bash
 # 使用 docker-compose 构建并运行
 docker-compose up -d --build
 ```
 
-### 步骤 3：访问应用
+### 步骤 4：访问应用
 
 打开浏览器访问：`http://你的服务器IP:5000`
 
@@ -135,31 +174,44 @@ sudo certbot --nginx -d your-domain.com
 
 ---
 
-## 环境变量配置（如需要）
+## 用户认证系统
 
-如果项目需要环境变量，创建 `.env.local` 文件：
+### 管理员后台
 
-```env
-# 示例配置
-NEXT_PUBLIC_API_URL=https://api.example.com
-```
+部署后访问 `/admin` 页面进入管理后台：
 
-在 Vercel 中，可以在项目设置的 "Environment Variables" 中添加。
+1. 输入管理员密钥（环境变量 `ADMIN_KEY`）
+2. 创建用户并生成 API Key
+3. 将 API Key 发送给用户
+
+### 用户使用流程
+
+1. 访问主页
+2. 输入 API Key 登录
+3. 开始使用抠图功能
+
+### 使用限制
+
+- 每个用户有每日使用次数限制
+- 使用次数每天自动重置
+- 管理员可以设置用户过期时间
 
 ---
 
 ## 注意事项
 
-1. **图片生成 API**：本项目使用了图片生成功能，部署时需要确保 API 配置正确
-2. **TensorFlow.js**：模型在浏览器端运行，不需要服务器端配置
-3. **内存占用**：建议服务器至少 2GB 内存
+1. **数据库配置**：必须配置 Supabase 才能使用用户认证功能
+2. **管理员密钥**：请修改默认的管理员密钥以确保安全
+3. **TensorFlow.js**：模型在浏览器端运行，不需要服务器端配置
+4. **内存占用**：建议服务器至少 2GB 内存
+5. **图片生成 API**：动漫转换功能需要配置 COZE_API_KEY
 
 ---
 
 ## 常见问题
 
 ### Q: Vercel 部署失败怎么办？
-A: 检查 `package.json` 中的依赖版本，确保 Node.js 版本兼容。
+A: 检查 `package.json` 中的依赖版本，确保 Node.js 版本兼容。检查环境变量是否配置正确。
 
 ### Q: Docker 容器无法访问？
 A: 检查防火墙是否开放端口：
@@ -172,7 +224,13 @@ sudo firewall-cmd --add-port=5000/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
+### Q: 如何创建新用户？
+A: 访问 `/admin` 页面，使用管理员密钥登录后创建用户。
+
 ### Q: 如何更新部署？
 A: 
 - Vercel：推送新代码自动部署
 - Docker：重新执行 `docker-compose up -d --build`
+
+### Q: 数据库连接失败怎么办？
+A: 检查 Supabase 配置是否正确，确保 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY` 配置正确。
