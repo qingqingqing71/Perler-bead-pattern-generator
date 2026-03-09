@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import path from 'path';
 
 const nextConfig: NextConfig = {
+  output: 'standalone', // 支持 Docker 部署
   allowedDevOrigins: ['*.dev.coze.site'],
   images: {
     remotePatterns: [
