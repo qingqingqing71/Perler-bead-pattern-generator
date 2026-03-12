@@ -22,6 +22,7 @@ import {
   Wand2,
   Key,
   LogOut,
+  ZoomIn,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
 import type { BodySegmenter } from '@tensorflow-models/body-segmentation';
@@ -340,6 +341,39 @@ export default function Home() {
     // Grid size change only affects pixelation, not the main result
   }, []);
 
+  // Handle upscale factor change
+  const handleUpscaleFactorChange = useCallback((factor: 1 | 2) => {
+    setUpscaleFactor(factor);
+  }, []);
+
+  // Upscale image function
+  const upscaleImage = useCallback(async (imageSrc: string, factor: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建画布'));
+          return;
+        }
+        
+        canvas.width = img.width * factor;
+        canvas.height = img.height * factor;
+        
+        // Use high-quality scaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = imageSrc;
+    });
+  }, []);
+
   // Toggle between original and anime image
   const handleToggleImageSource = useCallback(async () => {
     if (!removedBgImage) return;
@@ -357,16 +391,23 @@ export default function Home() {
 
   // Pixelate image - pixelate the original image
   const handlePixelate = useCallback(async () => {
-    // 直接使用原图进行像素化处理
-    const sourceImage = originalImage;
-    if (!sourceImage || isPixelating) return;
+    if (!originalImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
+      // 如果选择2倍放大，先放大图片
+      let sourceImage = originalImage;
+      if (upscaleFactor === 2) {
+        sourceImage = await upscaleImage(originalImage, 2);
+        setUpscaledImage(sourceImage);
+      }
+
+      // 2倍放大时：图片放大2倍，占比变成1.5倍（0.9 * 1.5 = 1.35）
       setEffectiveGridSize(gridSize);
-      const scaleRatio = 0.9;
+      const scaleRatio = upscaleFactor === 2 ? 0.9 * 1.5 : 0.9;
+      
       const result = await pixelateImage(sourceImage, gridSize, false, scaleRatio);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
@@ -376,7 +417,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [originalImage, gridSize, isPixelating]);
+  }, [originalImage, gridSize, isPixelating, upscaleFactor, upscaleImage]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -579,7 +620,7 @@ export default function Home() {
         {/* Grid Size Selector */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="flex items-center justify-center gap-4 flex-wrap">
+            <div className="flex items-center justify-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
                 <Grid3X3 className="w-5 h-5 text-blue-600" />
                 <span className="font-medium text-slate-700 dark:text-slate-300">网格纸规格：</span>
@@ -600,6 +641,33 @@ export default function Home() {
                     {option.label}
                   </Button>
                 ))}
+              </div>
+              
+              {/* Divider */}
+              <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
+              
+              {/* Upscale Factor Selector */}
+              <div className="flex items-center gap-2">
+                <ZoomIn className="w-5 h-5 text-purple-600" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">图片大小：</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={upscaleFactor === 1 ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleUpscaleFactorChange(1)}
+                    className={upscaleFactor === 1 ? 'bg-purple-600 hover:bg-purple-700' : ''}
+                  >
+                    标准 (1×)
+                  </Button>
+                  <Button
+                    variant={upscaleFactor === 2 ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleUpscaleFactorChange(2)}
+                    className={upscaleFactor === 2 ? 'bg-purple-600 hover:bg-purple-700' : ''}
+                  >
+                    大图 (2×)
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
