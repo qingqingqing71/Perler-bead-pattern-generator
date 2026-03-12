@@ -4,22 +4,22 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'AI 抠图工具 | 扣子编程',
+    default: '自助拼豆图纸生成器 | 扣子编程',
     template: '%s | 扣子编程',
   },
   description:
-    'AI 智能抠图工具，自动识别并抠出照片主体，贴到空白网格纸上。支持一键下载处理结果。',
+    '自助拼豆图纸生成器，上传照片自动生成拼豆图纸，支持像素化处理、动漫风格转换，一键下载打印。',
   keywords: [
     '扣子编程',
     'Coze Code',
     'Vibe Coding',
     'AI 编程',
-    '智能体搭建',
-    '工作流搭建',
-    '网站搭建',
-    '网站部署',
-    '全栈开发',
-    'AI 工程师',
+    '拼豆',
+    '拼豆图纸',
+    '像素画',
+    '十字绣',
+    '手工制作',
+    'DIY',
   ],
   authors: [{ name: 'Coze Code Team', url: 'https://code.coze.cn' }],
   generator: 'Coze Code',

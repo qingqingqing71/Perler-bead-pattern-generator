@@ -571,11 +571,11 @@ export default function Home() {
           <div className="inline-flex items-center gap-2 mb-4">
             <Scissors className="w-8 h-8 text-blue-600" />
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-              AI 抠图工具
+              自助拼豆图纸生成器
             </h1>
           </div>
           <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            上传照片，自动抠出主体，转换为动漫风格，然后贴到空白网格纸上
+            上传照片，自动抠出主体，转换为动漫风格，然后生成拼豆图纸
           </p>
 
           {/* 用户信息和使用次数 */}
