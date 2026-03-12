@@ -617,6 +617,58 @@ export default function Home() {
         {isAuthenticated && (
           <>
 
+        {/* Instructions */}
+        <div className="mb-6 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
+          <h3 className="text-lg font-semibold mb-4 text-center">使用说明</h3>
+          <div className="grid sm:grid-cols-5 gap-4">
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold text-lg">1</span>
+              </div>
+              <div>
+                <p className="font-medium">选择网格</p>
+                <p className="text-sm text-slate-500">选择网格规格和图片大小</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-600 dark:text-blue-400 font-semibold text-lg">2</span>
+              </div>
+              <div>
+                <p className="font-medium">上传图片</p>
+                <p className="text-sm text-slate-500">选择要处理的图片</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-green-600 dark:text-green-400 font-semibold text-lg">3</span>
+              </div>
+              <div>
+                <p className="font-medium">像素化处理</p>
+                <p className="text-sm text-slate-500">生成像素化图片</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-orange-600 dark:text-orange-400 font-semibold text-lg">4</span>
+              </div>
+              <div>
+                <p className="font-medium">生成拼豆图纸</p>
+                <p className="text-sm text-slate-500">获取拼豆配色方案</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-purple-600 dark:text-purple-400 font-semibold text-lg">5</span>
+              </div>
+              <div>
+                <p className="font-medium">下载结果</p>
+                <p className="text-sm text-slate-500">保存拼豆图纸</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Grid Size Selector */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -1015,65 +1067,6 @@ export default function Home() {
             </CardContent>
           </Card>
         )}
-
-        {/* Instructions */}
-        <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">使用说明</h3>
-          <div className="grid sm:grid-cols-5 gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">1</span>
-              </div>
-              <div>
-                <p className="font-medium">选择网格</p>
-                <p className="text-sm text-slate-500">选择网格规格</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">2</span>
-              </div>
-              <div>
-                <p className="font-medium">上传图片</p>
-                <p className="text-sm text-slate-500">选择要处理的图片</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-green-600 dark:text-green-400 font-semibold">3</span>
-              </div>
-              <div>
-                <p className="font-medium">像素化处理</p>
-                <p className="text-sm text-slate-500">生成像素化图片</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-orange-600 dark:text-orange-400 font-semibold">4</span>
-              </div>
-              <div>
-                <p className="font-medium">生成拼豆图纸</p>
-                <p className="text-sm text-slate-500">获取拼豆配色方案</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 dark:text-blue-400 font-semibold">5</span>
-              </div>
-              <div>
-                <p className="font-medium">下载结果</p>
-                <p className="text-sm text-slate-500">保存拼豆图纸</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tips */}
-        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-          <p className="text-sm text-blue-700 dark:text-blue-300">
-            <strong>提示：</strong>图像将居中显示在网格纸上，大小为网格纸的 90%。选择合适的网格规格可以获得不同精细度的拼豆效果。
-          </p>
-        </div>
           </>
         )}
       </div>
