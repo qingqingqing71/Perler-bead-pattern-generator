@@ -355,23 +355,19 @@ export default function Home() {
     }
   }, [removedBgImage, animeWithEdge, removedBgWithEdge, useAnimeImage]);
 
-  // Pixelate image - pixelate the anime or original cutout image
+  // Pixelate image - pixelate the original image
   const handlePixelate = useCallback(async () => {
-    // 当原图已是动漫风格时，使用放大后的图片或原图；否则使用抠图或动漫抠图
-    const sourceImage = isAlreadyAnime 
-      ? (upscaledImage || originalImage) 
-      : (useAnimeImage && animeImage ? animeImage : removedBgImage);
+    // 直接使用原图进行像素化处理
+    const sourceImage = originalImage;
     if (!sourceImage || isPixelating) return;
 
     setIsPixelating(true);
     setError(null);
 
     try {
-      // 网格数保持不变（无论放大倍数）
-      // 2倍放大时：图片放大2倍，占比变成1.5倍（0.9 * 1.5 = 1.35）
       setEffectiveGridSize(gridSize);
-      const scaleRatio = isAlreadyAnime && upscaleFactor === 2 ? 0.9 * 1.5 : 0.9;
-      const result = await pixelateImage(sourceImage, gridSize, isAlreadyAnime, scaleRatio);
+      const scaleRatio = 0.9;
+      const result = await pixelateImage(sourceImage, gridSize, false, scaleRatio);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
     } catch (err) {
@@ -380,7 +376,7 @@ export default function Home() {
     } finally {
       setIsPixelating(false);
     }
-  }, [originalImage, upscaledImage, removedBgImage, animeImage, useAnimeImage, gridSize, isPixelating, isAlreadyAnime, upscaleFactor]);
+  }, [originalImage, gridSize, isPixelating]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -403,42 +399,28 @@ export default function Home() {
   }, [pixelatedSubject, effectiveGridSize, isGeneratingBeadPattern]);
 
   const handleDownload = useCallback(() => {
-    if (!finalImage) return;
+    if (!originalImage) return;
 
     const link = document.createElement('a');
-    link.href = finalImage;
-    link.download = isAlreadyAnime ? 'original-anime.png' : `cutout${useAnimeImage ? '-anime' : ''}.png`;
+    link.href = originalImage;
+    link.download = 'original-image.png';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [finalImage, useAnimeImage, isAlreadyAnime]);
-
-  // Download original cutout (without edge outline)
-  const handleDownloadOriginal = useCallback(() => {
-    const sourceImage = useAnimeImage && animeImage ? animeImage : removedBgImage;
-    if (!sourceImage) return;
-
-    const link = document.createElement('a');
-    link.href = sourceImage;
-    link.download = `cutout-original${useAnimeImage ? '-anime' : ''}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [removedBgImage, animeImage, useAnimeImage]);
+  }, [originalImage]);
 
   const handleDownloadPixelated = useCallback(() => {
     if (!pixelatedImage) return;
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (animeImage ? '-anime' : '')}.png`;
+    link.download = `pixelated-${effectiveGridSize}x${effectiveGridSize}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, effectiveGridSize, animeImage, isAlreadyAnime]);
+  }, [pixelatedImage, effectiveGridSize]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
-    // Use pixelated subject (transparent background) directly
     if (!pixelatedSubject) return;
 
     try {
@@ -447,7 +429,7 @@ export default function Home() {
       
       const link = document.createElement('a');
       link.href = result.image;
-      link.download = `bead-pattern-hd-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (useAnimeImage ? '-anime' : '')}.png`;
+      link.download = `bead-pattern-hd-${effectiveGridSize}x${effectiveGridSize}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -457,13 +439,13 @@ export default function Home() {
       if (beadPatternImage) {
         const link = document.createElement('a');
         link.href = beadPatternImage;
-        link.download = `bead-pattern-${effectiveGridSize}x${effectiveGridSize}${isAlreadyAnime ? '-anime' : (useAnimeImage ? '-anime' : '')}.png`;
+        link.download = `bead-pattern-${effectiveGridSize}x${effectiveGridSize}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       }
     }
-  }, [pixelatedSubject, effectiveGridSize, animeImage, beadPatternImage, useAnimeImage, isAlreadyAnime]);
+  }, [pixelatedSubject, effectiveGridSize, beadPatternImage]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
