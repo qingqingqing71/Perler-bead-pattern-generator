@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     template: '%s | 扣子编程',
   },
   description:
-    '自助拼豆图纸生成器，上传照片自动生成拼豆图纸，支持像素化处理、动漫风格转换，一键下载打印。',
+    '自助拼豆图纸生成器，上传照片自动像素化处理，生成拼豆图纸，一键下载打印。',
   keywords: [
     '扣子编程',
     'Coze Code',
