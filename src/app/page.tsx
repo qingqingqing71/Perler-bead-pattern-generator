@@ -380,6 +380,10 @@ export default function Home() {
       const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, false);
       setFinalImage(displayResult.image);
       
+      // 生成带色号的图纸用于显示在"拼豆图纸"区域
+      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, true);
+      setBeadPatternImage(withCodeResult.image);
+      
       // 保存配色方案
       setBeadPatternLegend(displayResult.legend);
       
@@ -955,36 +959,59 @@ export default function Home() {
           </Card>
         )}
 
-        {/* Bead Pattern Legend & Download - 显示在生成图纸后 */}
-        {beadPatternLegend.length > 0 && (
+        {/* Bead Pattern Result Section */}
+        {beadPatternImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-md font-semibold">颜色图例</h3>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Beaker className="w-5 h-5 text-orange-600" />
+                  拼豆图纸
+                  <span className="text-sm font-normal text-slate-500 ml-2">
+                    ({effectiveGridSize}×{effectiveGridSize} 格)
+                  </span>
+                </h2>
                 <Button
                   onClick={handleDownloadBeadPattern}
                   size="sm"
                   className="bg-orange-600 hover:bg-orange-700"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  下载高清图纸（带色号）
+                  下载高清图纸
                 </Button>
               </div>
-              <div className="flex flex-wrap gap-3">
-                {beadPatternLegend.map((color, index) => (
-                  <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                    <div 
-                      className="w-6 h-6 rounded border border-slate-300"
-                      style={{ backgroundColor: color.hex }}
-                    />
-                    <span className="text-sm font-medium">{color.code}</span>
-                    <span className="text-sm text-slate-500">×{color.count}</span>
+
+              <div 
+                className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
+              >
+                <img
+                  src={beadPatternImage}
+                  alt="拼豆图纸"
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+
+              {/* Color Legend */}
+              {beadPatternLegend.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {beadPatternLegend.map((color, index) => (
+                      <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                        <div 
+                          className="w-6 h-6 rounded border border-slate-300"
+                          style={{ backgroundColor: color.hex }}
+                        />
+                        <span className="text-sm font-medium">{color.code}</span>
+                        <span className="text-sm text-slate-500">×{color.count}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-                总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
-              </div>
+                  <div className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                    总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
