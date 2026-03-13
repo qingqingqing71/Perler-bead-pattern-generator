@@ -2616,41 +2616,37 @@ async function generateBeadPatternHD(
       const srcCellCountY = Math.round(img.height / srcCellSize);
       
       // Step 2: Identify colored cells and their colors
+      // 使用精确采样：只读取网格中心一个像素，不做任何平均、插值或缩放
       const coloredCells = new Set<string>();
       const cellColors = new Map<string, { avgR: number; avgG: number; avgB: number }>();
       
       for (let cellY = 0; cellY < srcCellCountY; cellY++) {
         for (let cellX = 0; cellX < srcCellCountX; cellX++) {
-          const startX = Math.floor(cellX * srcCellSize);
-          const startY = Math.floor(cellY * srcCellSize);
-          const endX = Math.floor((cellX + 1) * srcCellSize);
-          const endY = Math.floor((cellY + 1) * srcCellSize);
+          // 计算网格中心像素坐标
+          const centerX = Math.floor((cellX + 0.5) * srcCellSize);
+          const centerY = Math.floor((cellY + 0.5) * srcCellSize);
           
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
-          
-          for (let y = startY; y < endY && y < img.height; y++) {
-            for (let x = startX; x < endX && x < img.width; x++) {
-              const idx = (y * img.width + x) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              totalA += srcData[idx + 3];
-              pixelCount++;
-            }
+          // 确保坐标在图像范围内
+          if (centerX < 0 || centerX >= img.width || centerY < 0 || centerY >= img.height) {
+            continue;
           }
           
-          if (pixelCount > 0) {
-            const avgA = Math.round(totalA / pixelCount);
-            if (avgA > 10) {
-              const key = `${cellX},${cellY}`;
-              coloredCells.add(key);
-              cellColors.set(key, {
-                avgR: Math.round(totalR / pixelCount),
-                avgG: Math.round(totalG / pixelCount),
-                avgB: Math.round(totalB / pixelCount)
-              });
-            }
+          // 直接读取中心像素的RGBA值
+          const idx = (centerY * img.width + centerX) * 4;
+          const centerR = srcData[idx];
+          const centerG = srcData[idx + 1];
+          const centerB = srcData[idx + 2];
+          const centerA = srcData[idx + 3];
+          
+          // 如果中心像素不透明，则标记为有颜色的格子
+          if (centerA > 10) {
+            const key = `${cellX},${cellY}`;
+            coloredCells.add(key);
+            cellColors.set(key, {
+              avgR: centerR,  // 直接使用中心像素值，非平均值
+              avgG: centerG,
+              avgB: centerB
+            });
           }
         }
       }
