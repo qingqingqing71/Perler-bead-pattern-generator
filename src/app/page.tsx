@@ -376,9 +376,12 @@ export default function Home() {
     setError(null);
 
     try {
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1);
-      setBeadPatternImage(result.image);
-      setBeadPatternLegend(result.legend);
+      // 生成不带色号的图纸用于显示在"处理结果"窗口
+      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, false);
+      setFinalImage(displayResult.image);
+      
+      // 保存配色方案
+      setBeadPatternLegend(displayResult.legend);
       
       // 记录使用次数
       recordUsage('bead_pattern', effectiveGridSize);
@@ -416,8 +419,8 @@ export default function Home() {
     if (!pixelatedSubject) return;
 
     try {
-      // Generate high-resolution bead pattern (3x scale for better readability)
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3);
+      // 生成带色号的高清图纸用于下载
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3, true);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -427,17 +430,9 @@ export default function Home() {
       document.body.removeChild(link);
     } catch (err) {
       console.error('HD download error:', err);
-      // Fallback to regular image
-      if (beadPatternImage) {
-        const link = document.createElement('a');
-        link.href = beadPatternImage;
-        link.download = `bead-pattern-${effectiveGridSize}x${effectiveGridSize}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridSize, beadPatternImage]);
+  }, [pixelatedSubject, effectiveGridSize]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -827,12 +822,24 @@ export default function Home() {
           <Card className="overflow-hidden">
             <CardContent className="p-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <ImageIcon className="w-5 h-5" />
-                处理结果
-                {finalImage && (
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    (原图)
-                  </span>
+                {beadPatternLegend.length > 0 ? (
+                  <>
+                    <Beaker className="w-5 h-5 text-orange-600" />
+                    拼豆图纸
+                    <span className="text-sm font-normal text-slate-500 ml-2">
+                      ({effectiveGridSize}×{effectiveGridSize} 格)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-5 h-5" />
+                    处理结果
+                    {finalImage && (
+                      <span className="text-sm font-normal text-slate-500 ml-2">
+                        (原图)
+                      </span>
+                    )}
+                  </>
                 )}
               </h2>
 
@@ -948,59 +955,36 @@ export default function Home() {
           </Card>
         )}
 
-        {/* Bead Pattern Result Section */}
-        {beadPatternImage && (
+        {/* Bead Pattern Legend & Download - 显示在生成图纸后 */}
+        {beadPatternLegend.length > 0 && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Beaker className="w-5 h-5 text-orange-600" />
-                  拼豆图纸
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridSize}×{effectiveGridSize} 格)
-                  </span>
-                </h2>
+                <h3 className="text-md font-semibold">颜色图例</h3>
                 <Button
                   onClick={handleDownloadBeadPattern}
                   size="sm"
                   className="bg-orange-600 hover:bg-orange-700"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  下载高清图纸
+                  下载高清图纸（带色号）
                 </Button>
               </div>
-
-              <div 
-                className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
-              >
-                <img
-                  src={beadPatternImage}
-                  alt="拼豆图纸"
-                  className="max-w-full max-h-full object-contain"
-                />
+              <div className="flex flex-wrap gap-3">
+                {beadPatternLegend.map((color, index) => (
+                  <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                    <div 
+                      className="w-6 h-6 rounded border border-slate-300"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <span className="text-sm font-medium">{color.code}</span>
+                    <span className="text-sm text-slate-500">×{color.count}</span>
+                  </div>
+                ))}
               </div>
-
-              {/* Color Legend */}
-              {beadPatternLegend.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
-                  <div className="flex flex-wrap gap-3">
-                    {beadPatternLegend.map((color, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                        <div 
-                          className="w-6 h-6 rounded border border-slate-300"
-                          style={{ backgroundColor: color.hex }}
-                        />
-                        <span className="text-sm font-medium">{color.code}</span>
-                        <span className="text-sm text-slate-500">×{color.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-                    总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
-                  </div>
-                </div>
-              )}
+              <div className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                总计: {beadPatternLegend.reduce((sum, c) => sum + c.count, 0)} 颗拼豆
+              </div>
             </CardContent>
           </Card>
         )}
@@ -2576,7 +2560,8 @@ async function generateBeadPattern(
 async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
-  scale: number = 3
+  scale: number = 3,
+  showColorCode: boolean = true
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -2915,18 +2900,20 @@ async function generateBeadPatternHD(
         finalColorCount.set(finalColor.code, count + 1);
       }
       
-      // Step 9: Draw MARD color codes
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      for (const block of drawnBlocks) {
-        const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
-        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+      // Step 9: Draw MARD color codes (only if showColorCode is true)
+      if (showColorCode) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         
-        ctx.font = `bold ${fontSize}px Arial`;
-        const centerX = block.x + cellSize / 2;
-        const centerY = block.y + cellSize / 2;
-        ctx.fillText(block.color.code, centerX, centerY);
+        for (const block of drawnBlocks) {
+          const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
+          ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+          
+          ctx.font = `bold ${fontSize}px Arial`;
+          const centerX = block.x + cellSize / 2;
+          const centerY = block.y + cellSize / 2;
+          ctx.fillText(block.color.code, centerX, centerY);
+        }
       }
       
       // Step 10: Draw red edge lines ONLY on outer boundary
