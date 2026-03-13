@@ -356,6 +356,9 @@ export default function Home() {
       const result = await pixelateImage(sourceImage, gridSize, false, scaleRatio);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
+      
+      // 记录使用次数
+      recordUsage('pixelate', gridSize, upscaleFactor);
     } catch (err) {
       console.error('Pixelate error:', err);
       setError(err instanceof Error ? err.message : '像素化处理失败');
@@ -376,6 +379,9 @@ export default function Home() {
       const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1);
       setBeadPatternImage(result.image);
       setBeadPatternLegend(result.legend);
+      
+      // 记录使用次数
+      recordUsage('bead_pattern', effectiveGridSize);
     } catch (err) {
       console.error('Bead pattern error:', err);
       setError(err instanceof Error ? err.message : '拼豆图纸生成失败');

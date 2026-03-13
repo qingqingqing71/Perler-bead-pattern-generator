@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
 
     // 检查并重置每日使用次数
     const today = new Date().toISOString().split('T')[0];
+    const currentUsageCount = user.usage_count ?? 0;
+    
     if (user.last_usage_date !== today) {
       await client
         .from('users')
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 检查使用次数限制
-    if (user.usage_count >= user.usage_limit) {
+    if (currentUsageCount >= user.usage_limit) {
       return NextResponse.json(
         { success: false, error: '今日使用次数已达上限' },
         { status: 429 }
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
     const { error: updateError } = await client
       .from('users')
       .update({ 
-        usage_count: user.usage_count + 1 
+        usage_count: currentUsageCount + 1 
       })
       .eq('id', userId);
 
