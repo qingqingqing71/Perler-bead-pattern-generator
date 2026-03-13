@@ -25,16 +25,12 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor } from '@/lib/mardColors';
-import type { BodySegmenter } from '@tensorflow-models/body-segmentation';
 
-type ProcessingStep = 'idle' | 'uploading' | 'loading-model' | 'removing-bg' | 'transforming-anime' | 'generating-grid' | 'done';
+type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
 const STEP_LABELS: Record<ProcessingStep, string> = {
   idle: '准备就绪',
   uploading: '正在上传图片...',
-  'loading-model': '正在加载模型...',
-  'removing-bg': '正在处理...',
-  'transforming-anime': '正在处理...',
   'generating-grid': '正在生成网格纸...',
   done: '处理完成',
 };
@@ -82,12 +78,7 @@ export default function Home() {
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
   const [beadPatternLegend, setBeadPatternLegend] = useState<Array<MardColor & { count: number }>>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
-  const [modelLoaded, setModelLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const modelRef = useRef<{
-    segmenter: BodySegmenter | null;
-    loaded: boolean;
-  }>({ segmenter: null, loaded: false });
 
   // 用户认证函数
   const handleAuth = async () => {
@@ -187,55 +178,9 @@ export default function Home() {
     }
   }, []);
 
-  // Load TensorFlow model on mount
-  useEffect(() => {
-    const loadModel = async () => {
-      try {
-        const tf = await import('@tensorflow/tfjs');
-        const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-        
-        await tf.ready();
-        
-        const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-        const segmenter = await bodySegmentation.createSegmenter(model, {
-          runtime: 'tfjs',
-          modelType: 'general',
-        });
-        
-        modelRef.current = { segmenter, loaded: true };
-        setModelLoaded(true);
-        console.log('Model loaded successfully');
-      } catch (err) {
-        console.error('Failed to load MediaPipe model:', err);
-        // Try fallback to BodyPix
-        try {
-          const tf = await import('@tensorflow/tfjs');
-          const bodySegmentation = await import('@tensorflow-models/body-segmentation');
-          
-          await tf.ready();
-          
-          const model = bodySegmentation.SupportedModels.BodyPix;
-          const segmenter = await bodySegmentation.createSegmenter(model, {
-            architecture: 'ResNet50',
-            outputStride: 16,
-            quantBytes: 4,
-          });
-          
-          modelRef.current = { segmenter, loaded: true };
-          setModelLoaded(true);
-          console.log('Fallback BodyPix model loaded');
-        } catch (fallbackErr) {
-          console.error('Fallback also failed:', fallbackErr);
-        }
-      }
-    };
-    
-    loadModel();
-  }, []);
-
   // Handle click on upload area
   const handleUploadClick = useCallback(() => {
-    if ((step === 'idle' || step === 'done') && modelLoaded) {
+    if (step === 'idle' || step === 'done') {
       if (step === 'done') {
         setOriginalImage(null);
         setRemovedBgImage(null);
@@ -252,7 +197,7 @@ export default function Home() {
         fileInputRef.current.click();
       }
     }
-  }, [step, modelLoaded]);
+  }, [step]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -512,7 +457,7 @@ export default function Home() {
     }
   }, []);
 
-  const canUpload = (step === 'idle' || step === 'done') && modelLoaded;
+  const canUpload = step === 'idle' || step === 'done';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
@@ -548,20 +493,6 @@ export default function Home() {
               </Button>
             </div>
           )}
-
-          <div className="mt-4 inline-flex items-center gap-2">
-            {modelLoaded ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
-                <span className="text-sm text-green-600 dark:text-green-400">准备就绪，点击上传照片开始</span>
-              </>
-            ) : (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                <span className="text-sm text-blue-600">正在加载 AI 模型，请稍候...</span>
-              </>
-            )}
-          </div>
         </div>
 
         {/* 未认证时的登录界面 */}
