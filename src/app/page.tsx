@@ -1781,8 +1781,12 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
             // 当 isFullImage 为 true 时，处理整张图片（忽略透明度检测）
             // 否则只绘制有透明度的像素（抠图主体）
             if (isFullImage || avgA > 10) {
+              // 找到最接近的拼豆颜色
+              const mardColor = findClosestMardColor(avgR, avgG, avgB);
+              
               // Draw at centered position (offsetX, offsetY) on 800x800 canvas
-              subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${isFullImage ? 1 : avgA / 255})`;
+              // 使用拼豆颜色填充
+              subjectCtx.fillStyle = mardColor.hex;
               subjectCtx.fillRect(
                 offsetX + gridX * cellSize,
                 offsetY + gridY * cellSize,
@@ -1892,7 +1896,10 @@ async function pixelateImage(imageUrl: string, gridCount: number, isFullImage: b
           const avgA = Math.round(totalA / pixelCount);
           
           if (avgA > 10) {
-            subjectCtx.fillStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${avgA / 255})`;
+            // 找到最接近的拼豆颜色
+            const mardColor = findClosestMardColor(avgR, avgG, avgB);
+            
+            subjectCtx.fillStyle = mardColor.hex;
             subjectCtx.fillRect(
               offsetX + gridX * cellSize,
               offsetY + gridY * cellSize,
