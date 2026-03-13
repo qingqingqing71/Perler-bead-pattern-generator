@@ -2797,8 +2797,8 @@ async function generateBeadPatternHD(
         colorUsageCount.set(mardColor.code, count + 1);
       }
       
-      // Step 6: Limit colors to max 16 (避免杂色过多)
-      const MAX_COLORS = 16;
+      // Step 6: Limit colors to max 20
+      const MAX_COLORS = 20;
       let selectedColors: MardColor[];
       
       if (colorUsageCount.size <= MAX_COLORS) {
