@@ -2804,25 +2804,11 @@ async function generateBeadPatternHD(
         colorUsageCount.set(mardColor.code, count + 1);
       }
       
-      // Step 6: Limit colors to max 20
-      const MAX_COLORS = 20;
-      let selectedColors: MardColor[];
-      
-      if (colorUsageCount.size <= MAX_COLORS) {
-        selectedColors = Array.from(colorUsageCount.keys()).map(code => {
-          const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
-          return mardColorMap.get(key)!;
-        });
-      } else {
-        const sortedColors = Array.from(colorUsageCount.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_COLORS)
-          .map(([code]) => {
-            const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
-            return mardColorMap.get(key)!;
-          });
-        selectedColors = sortedColors;
-      }
+      // 不再限制颜色数量，使用所有实际用到的颜色
+      const selectedColors: MardColor[] = Array.from(colorUsageCount.keys()).map(code => {
+        const key = Array.from(mardColorMap.entries()).find(([_, v]) => v.code === code)![0];
+        return mardColorMap.get(key)!;
+      });
       
       const selectedColorCodes = new Set(selectedColors.map(c => c.code));
       
@@ -2888,27 +2874,9 @@ async function generateBeadPatternHD(
         let finalRgb: { r: number; g: number; b: number };
         
         if (coloredCells.has(key)) {
-          let mardColor = mardColorMap.get(key)!;
-          
-          if (!selectedColorCodes.has(mardColor.code)) {
-            const srcColor = cellColors.get(key)!;
-            let minDist = Infinity;
-            for (const color of selectedColors) {
-              const rgb = hexToRgb(color.hex);
-              const dist = Math.sqrt(
-                Math.pow(srcColor.avgR - rgb.r, 2) +
-                Math.pow(srcColor.avgG - rgb.g, 2) +
-                Math.pow(srcColor.avgB - rgb.b, 2)
-              );
-              if (dist < minDist) {
-                minDist = dist;
-                mardColor = color;
-              }
-            }
-          }
-          
-          finalColor = mardColor;
-          finalRgb = hexToRgb(mardColor.hex);
+          // 直接使用已匹配的拼豆颜色，不再做二次匹配
+          finalColor = mardColorMap.get(key)!;
+          finalRgb = hexToRgb(finalColor.hex);
         } else {
           finalColor = whiteMardColor;
           finalRgb = { r: 255, g: 255, b: 255 };
