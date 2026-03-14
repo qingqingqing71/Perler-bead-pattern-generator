@@ -6,9 +6,6 @@ export interface MardColor {
   hex: string;
 }
 
-// 采样模式类型
-export type SamplingMode = 'single' | 'multi5' | 'multi9';
-
 // 完整的MARD色号映射表
 export const MARD_COLORS: MardColor[] = [
   // A系列 - 黄色/米色系
