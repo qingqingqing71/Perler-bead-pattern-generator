@@ -64,6 +64,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [gridWidth, setGridWidth] = useState(25);  // 网格宽度（列数）
   const [gridHeight, setGridHeight] = useState(25); // 网格高度（行数）
+  const [gridWidthInput, setGridWidthInput] = useState('25'); // 宽度输入框的值
+  const [gridHeightInput, setGridHeightInput] = useState('25'); // 高度输入框的值
   const [effectiveGridCols, setEffectiveGridCols] = useState(25); // 实际使用的网格列数（考虑放大倍数）
   const [effectiveGridRows, setEffectiveGridRows] = useState(25); // 实际使用的网格行数（考虑放大倍数）
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced'); // 颜色匹配精度
@@ -284,20 +286,36 @@ export default function Home() {
   const handleGridSizeChange = useCallback(async (newGridSize: number) => {
     setGridWidth(newGridSize);
     setGridHeight(newGridSize);
+    setGridWidthInput(String(newGridSize));
+    setGridHeightInput(String(newGridSize));
     // Grid size change only affects pixelation, not the main result
   }, []);
 
-  // Handle custom grid width change
-  const handleGridWidthChange = useCallback((value: number) => {
-    const clampedValue = Math.max(1, Math.min(200, value));
-    setGridWidth(clampedValue);
+  // Handle custom grid width input change
+  const handleGridWidthInputChange = useCallback((value: string) => {
+    setGridWidthInput(value);
   }, []);
 
-  // Handle custom grid height change
-  const handleGridHeightChange = useCallback((value: number) => {
-    const clampedValue = Math.max(1, Math.min(200, value));
-    setGridHeight(clampedValue);
+  // Handle custom grid height input change
+  const handleGridHeightInputChange = useCallback((value: string) => {
+    setGridHeightInput(value);
   }, []);
+
+  // Handle grid width input blur - validate and clamp
+  const handleGridWidthBlur = useCallback(() => {
+    const numValue = parseInt(gridWidthInput) || 1;
+    const clampedValue = Math.max(1, Math.min(200, numValue));
+    setGridWidth(clampedValue);
+    setGridWidthInput(String(clampedValue));
+  }, [gridWidthInput]);
+
+  // Handle grid height input blur - validate and clamp
+  const handleGridHeightBlur = useCallback(() => {
+    const numValue = parseInt(gridHeightInput) || 1;
+    const clampedValue = Math.max(1, Math.min(200, numValue));
+    setGridHeight(clampedValue);
+    setGridHeightInput(String(clampedValue));
+  }, [gridHeightInput]);
 
   // Handle upscale factor change
   const handleUpscaleFactorChange = useCallback((factor: 1 | 2) => {
@@ -473,6 +491,8 @@ export default function Home() {
     setEffectiveGridRows(25);
     setGridWidth(25);
     setGridHeight(25);
+    setGridWidthInput('25');
+    setGridHeightInput('25');
     setStep('idle');
     setProgress(0);
     setError(null);
@@ -658,8 +678,9 @@ export default function Home() {
                     type="number"
                     min={1}
                     max={200}
-                    value={gridWidth}
-                    onChange={(e) => handleGridWidthChange(parseInt(e.target.value) || 1)}
+                    value={gridWidthInput}
+                    onChange={(e) => handleGridWidthInputChange(e.target.value)}
+                    onBlur={handleGridWidthBlur}
                     className="w-16 h-8 text-center"
                   />
                   <span className="text-slate-500">×</span>
@@ -667,8 +688,9 @@ export default function Home() {
                     type="number"
                     min={1}
                     max={200}
-                    value={gridHeight}
-                    onChange={(e) => handleGridHeightChange(parseInt(e.target.value) || 1)}
+                    value={gridHeightInput}
+                    onChange={(e) => handleGridHeightInputChange(e.target.value)}
+                    onBlur={handleGridHeightBlur}
                     className="w-16 h-8 text-center"
                   />
                 </div>
