@@ -2772,19 +2772,19 @@ async function generateBeadPatternHD(
         }
       }
       
-      // Step 4: Limit to max 20 colors
-      const MAX_COLORS = 20;
+      // Step 4: Limit to max 30 colors
+      const MAX_COLORS = 30;
       let selectedColors: MardColor[];
       
       if (colorStats.size > MAX_COLORS) {
-        // Get top 20 most frequently used colors
+        // Get top 30 most frequently used colors
         const sortedEntries = Array.from(colorStats.entries())
           .sort((a, b) => b[1].count - a[1].count)
           .slice(0, MAX_COLORS);
         
         selectedColors = sortedEntries.map(([_, data]) => data.color);
         
-        // Remap cells with non-top-20 colors
+        // Remap cells with non-top-30 colors
         const selectedColorSet = new Set(selectedColors.map(c => c.code));
         
         for (const cell of cellData) {
@@ -2853,9 +2853,9 @@ async function generateBeadPatternHD(
       const gridWidth = gridCols * baseCellSize;
       const gridHeight = gridRows * baseCellSize;
       
-      // 固定每排10个色号，共两排
+      // 固定每排10个色号，共三排（最多30种颜色）
       const itemsPerRow = 10;
-      const legendRows = 2;
+      const legendRows = 3;
       
       // 计算每个色号项的宽度（预估）
       const estimatedItemWidth = 70 * scale;
@@ -2866,7 +2866,7 @@ async function generateBeadPatternHD(
       // 画布宽度取网格宽度和图例所需宽度的较大值
       const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendWidth);
       
-      // 图例高度：标题 + 两排色号
+      // 图例高度：标题 + 三排色号
       const legendHeight = legendPadding + 40 * scale + legendRows * itemHeight + legendPadding;
       
       // Canvas size: grid with labels on all 4 sides, plus legend at bottom
@@ -3025,8 +3025,8 @@ async function generateBeadPatternHD(
           const row = Math.floor(index / itemsPerRow);
           const col = index % itemsPerRow;
           
-          // 如果超过两排，跳过
-          if (row >= 2) return;
+          // 如果超过三排，跳过
+          if (row >= 3) return;
           
           const itemStartX = legendStartX + col * actualItemWidth;
           const y = legendY + legendPadding + 40 * scale + row * itemHeight;
