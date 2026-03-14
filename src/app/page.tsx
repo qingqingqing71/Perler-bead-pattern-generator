@@ -2640,8 +2640,8 @@ async function generateBeadPattern(
         ctx.fillText(block.color.code, centerX, centerY);
       }
 
-      // Draw grid lines on top (黑色细线)
-      ctx.strokeStyle = '#000000';
+      // Draw grid lines on top
+      ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
       for (let i = 0; i <= gridSize; i++) {
