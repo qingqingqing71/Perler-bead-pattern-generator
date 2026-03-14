@@ -24,7 +24,7 @@ import {
   LogOut,
   ZoomIn,
 } from 'lucide-react';
-import { findClosestMardColor, MardColor } from '@/lib/mardColors';
+import { findClosestMardColor, MardColor, ColorMatchAccuracy } from '@/lib/mardColors';
 
 type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
@@ -67,6 +67,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [gridSize, setGridSize] = useState(25);
   const [effectiveGridSize, setEffectiveGridSize] = useState(25); // 实际使用的网格数（考虑放大倍数）
+  const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced'); // 颜色匹配精度
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 2>(1); // 放大倍数：1倍或2倍
@@ -377,11 +378,11 @@ export default function Home() {
 
     try {
       // 生成不带色号的图纸用于显示在"处理结果"窗口
-      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, false);
+      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, false, colorMatchAccuracy);
       setFinalImage(displayResult.image);
       
       // 生成带色号的图纸用于显示在"拼豆图纸"区域
-      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, true);
+      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, true, colorMatchAccuracy);
       setBeadPatternImage(withCodeResult.image);
       
       // 保存配色方案
@@ -395,7 +396,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedSubject, effectiveGridSize, isGeneratingBeadPattern]);
+  }, [pixelatedSubject, effectiveGridSize, isGeneratingBeadPattern, colorMatchAccuracy]);
 
   const handleDownload = useCallback(() => {
     if (!originalImage) return;
@@ -424,7 +425,7 @@ export default function Home() {
 
     try {
       // 生成带色号的高清图纸用于下载
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3, true);
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3, true, colorMatchAccuracy);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -436,7 +437,7 @@ export default function Home() {
       console.error('HD download error:', err);
       setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridSize]);
+  }, [pixelatedSubject, effectiveGridSize, colorMatchAccuracy]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -654,6 +655,33 @@ export default function Home() {
                     className={upscaleFactor === 2 ? 'bg-purple-600 hover:bg-purple-700' : ''}
                   >
                     大图 (2×)
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Divider */}
+              <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
+              
+              {/* Color Match Accuracy Selector */}
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-600" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">颜色匹配：</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={colorMatchAccuracy === 'standard' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setColorMatchAccuracy('standard')}
+                    className={colorMatchAccuracy === 'standard' ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                  >
+                    标准
+                  </Button>
+                  <Button
+                    variant={colorMatchAccuracy === 'enhanced' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setColorMatchAccuracy('enhanced')}
+                    className={colorMatchAccuracy === 'enhanced' ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                  >
+                    增强
                   </Button>
                 </div>
               </div>
@@ -2406,7 +2434,8 @@ async function removeBackgroundColors(imageUrl: string): Promise<string> {
 // Generate bead pattern with MARD color codes (based on pixelated image)
 async function generateBeadPattern(
   imageUrl: string,
-  gridSize: number
+  gridSize: number,
+  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
 ): Promise<{ image: string; legend: MardColor[] }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -2505,7 +2534,7 @@ async function generateBeadPattern(
             const avgB = Math.round(totalB / pixelCount);
 
             // Find nearest MARD color for the legend
-            const nearestColor = findClosestMardColor(avgR, avgG, avgB);
+            const nearestColor = findClosestMardColor(avgR, avgG, avgB, colorMatchAccuracy);
             
             // Track color for legend
             if (!colorMap.has(nearestColor.code)) {
@@ -2588,7 +2617,8 @@ async function generateBeadPatternHD(
   subjectImageUrl: string,
   gridSize: number,
   scale: number = 3,
-  showColorCode: boolean = true
+  showColorCode: boolean = true,
+  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -2787,7 +2817,7 @@ async function generateBeadPatternHD(
       
       for (const key of coloredCells) {
         const color = cellColors.get(key)!;
-        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB);
+        const mardColor = findClosestMardColor(color.avgR, color.avgG, color.avgB, colorMatchAccuracy);
         mardColorMap.set(key, mardColor);
         const count = colorUsageCount.get(mardColor.code) || 0;
         colorUsageCount.set(mardColor.code, count + 1);

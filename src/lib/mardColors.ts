@@ -250,13 +250,28 @@ export const MARD_COLORS: MardColor[] = [
 ];
 
 /**
- * 计算两个颜色之间的欧氏距离
+ * 计算两个颜色之间的欧氏距离（简单模式）
  */
 function colorDistance(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number {
   return Math.sqrt(
     Math.pow(r1 - r2, 2) +
     Math.pow(g1 - g2, 2) +
     Math.pow(b1 - b2, 2)
+  );
+}
+
+/**
+ * 计算感知加权的RGB距离（标准模式）
+ * 人眼对绿色最敏感，蓝色最不敏感
+ */
+function weightedColorDistance(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number {
+  const dr = r1 - r2;
+  const dg = g1 - g2;
+  const db = b1 - b2;
+  return Math.sqrt(
+    Math.pow(dr, 2) * 0.299 +
+    Math.pow(dg, 2) * 0.587 +
+    Math.pow(db, 2) * 0.114
   );
 }
 
@@ -274,20 +289,197 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     : { r: 255, g: 255, b: 255 };
 }
 
+// ========== Lab 颜色空间转换函数 ==========
+
+/**
+ * 将 RGB 转换为 XYZ 颜色空间
+ */
+function rgbToXyz(r: number, g: number, b: number): { x: number; y: number; z: number } {
+  // 将 RGB 转换为线性 RGB（伽马校正）
+  const normalize = (c: number) => {
+    const cNorm = c / 255;
+    return cNorm > 0.04045 ? Math.pow((cNorm + 0.055) / 1.055, 2.4) : cNorm / 12.92;
+  };
+
+  const rLinear = normalize(r);
+  const gLinear = normalize(g);
+  const bLinear = normalize(b);
+
+  // 使用 sRGB 转换矩阵转换为 XYZ
+  const x = (rLinear * 0.4124564 + gLinear * 0.3575761 + bLinear * 0.1804375) * 100;
+  const y = (rLinear * 0.2126729 + gLinear * 0.7151522 + bLinear * 0.0721750) * 100;
+  const z = (rLinear * 0.0193339 + gLinear * 0.1191920 + bLinear * 0.9503041) * 100;
+
+  return { x, y, z };
+}
+
+/**
+ * 将 XYZ 转换为 Lab 颜色空间
+ */
+function xyzToLab(x: number, y: number, z: number): { l: number; a: number; b: number } {
+  // 参考白点 (D65)
+  const xn = 95.047;
+  const yn = 100.000;
+  const zn = 108.883;
+
+  const normalize = (c: number) => {
+    return c > 0.008856 ? Math.pow(c, 1/3) : (7.787 * c) + (16 / 116);
+  };
+
+  const fx = normalize(x / xn);
+  const fy = normalize(y / yn);
+  const fz = normalize(z / zn);
+
+  const l = 116 * fy - 16;
+  const a = 500 * (fx - fy);
+  const b = 200 * (fy - fz);
+
+  return { l, a, b };
+}
+
+/**
+ * 将 RGB 直接转换为 Lab
+ */
+export function rgbToLab(r: number, g: number, b: number): { l: number; a: number; b: number } {
+  const { x, y, z } = rgbToXyz(r, g, b);
+  return xyzToLab(x, y, z);
+}
+
+/**
+ * 计算 CIEDE2000 色差（最准确的色差公式）
+ * 参考: http://www.brucelindbloom.com/index.html?Eqn_DeltaE_CIE2000.html
+ */
+export function deltaE2000(
+  lab1: { l: number; a: number; b: number }, 
+  lab2: { l: number; a: number; b: number }
+): number {
+  const L1 = lab1.l;
+  const a1 = lab1.a;
+  const b1 = lab1.b;
+  const L2 = lab2.l;
+  const a2 = lab2.a;
+  const b2 = lab2.b;
+
+  const kL = 1;
+  const kC = 1;
+  const kH = 1;
+
+  const C1 = Math.sqrt(a1 * a1 + b1 * b1);
+  const C2 = Math.sqrt(a2 * a2 + b2 * b2);
+  const Cab = (C1 + C2) / 2;
+
+  const G = 0.5 * (1 - Math.sqrt(Math.pow(Cab, 7) / (Math.pow(Cab, 7) + Math.pow(25, 7))));
+  const a1p = a1 * (1 + G);
+  const a2p = a2 * (1 + G);
+
+  const C1p = Math.sqrt(a1p * a1p + b1 * b1);
+  const C2p = Math.sqrt(a2p * a2p + b2 * b2);
+
+  let h1p = Math.atan2(b1, a1p) * 180 / Math.PI;
+  if (h1p < 0) h1p += 360;
+  let h2p = Math.atan2(b2, a2p) * 180 / Math.PI;
+  if (h2p < 0) h2p += 360;
+
+  const dLp = L2 - L1;
+  const dCp = C2p - C1p;
+
+  let dhp: number;
+  if (C1p * C2p === 0) {
+    dhp = 0;
+  } else if (Math.abs(h2p - h1p) <= 180) {
+    dhp = h2p - h1p;
+  } else if (h2p - h1p > 180) {
+    dhp = h2p - h1p - 360;
+  } else {
+    dhp = h2p - h1p + 360;
+  }
+
+  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360);
+
+  const Lp = (L1 + L2) / 2;
+  const Cp = (C1p + C2p) / 2;
+
+  let Hp: number;
+  if (C1p * C2p === 0) {
+    Hp = h1p + h2p;
+  } else if (Math.abs(h1p - h2p) <= 180) {
+    Hp = (h1p + h2p) / 2;
+  } else if (h1p + h2p < 360) {
+    Hp = (h1p + h2p + 360) / 2;
+  } else {
+    Hp = (h1p + h2p - 360) / 2;
+  }
+
+  const T = 1 - 0.17 * Math.cos((Hp - 30) * Math.PI / 180)
+          + 0.24 * Math.cos(2 * Hp * Math.PI / 180)
+          + 0.32 * Math.cos((3 * Hp + 6) * Math.PI / 180)
+          - 0.20 * Math.cos((4 * Hp - 63) * Math.PI / 180);
+
+  const SL = 1 + (0.015 * Math.pow(Lp - 50, 2)) / Math.sqrt(20 + Math.pow(Lp - 50, 2));
+  const SC = 1 + 0.045 * Cp;
+  const SH = 1 + 0.015 * Cp * T;
+
+  const RT = -2 * Math.sqrt(Math.pow(Cp, 7) / (Math.pow(Cp, 7) + Math.pow(25, 7)))
+             * Math.sin(60 * Math.exp(-Math.pow((Hp - 275) / 25, 2)) * Math.PI / 180);
+
+  const dE = Math.sqrt(
+    Math.pow(dLp / (kL * SL), 2) +
+    Math.pow(dCp / (kC * SC), 2) +
+    Math.pow(dHp / (kH * SH), 2) +
+    RT * (dCp / (kC * SC)) * (dHp / (kH * SH))
+  );
+
+  return dE;
+}
+
+// 预计算 MARD 颜色的 Lab 值（提高性能）
+const MARD_COLORS_LAB: Array<{ color: MardColor; rgb: { r: number; g: number; b: number }; lab: { l: number; a: number; b: number } }> = 
+  MARD_COLORS.map(color => {
+    const rgb = hexToRgb(color.hex);
+    const lab = rgbToLab(rgb.r, rgb.g, rgb.b);
+    return { color, rgb, lab };
+  });
+
+// 颜色匹配精度模式
+export type ColorMatchAccuracy = 'standard' | 'enhanced';
+
 /**
  * 找到最接近的MARD色号
+ * @param r 红色分量 (0-255)
+ * @param g 绿色分量 (0-255)
+ * @param b 蓝色分量 (0-255)
+ * @param accuracy 颜色匹配精度：'standard' 标准模式（感知加权RGB距离），'enhanced' 增强模式（CIEDE2000）
  */
-export function findClosestMardColor(r: number, g: number, b: number): MardColor {
+export function findClosestMardColor(
+  r: number, 
+  g: number, 
+  b: number, 
+  accuracy: ColorMatchAccuracy = 'standard'
+): MardColor {
   let closestColor = MARD_COLORS[0];
   let minDistance = Infinity;
 
-  for (const color of MARD_COLORS) {
-    const rgb = hexToRgb(color.hex);
-    const distance = colorDistance(r, g, b, rgb.r, rgb.g, rgb.b);
-    
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestColor = color;
+  if (accuracy === 'enhanced') {
+    // 增强模式：使用 CIEDE2000 在 Lab 颜色空间计算（最准确）
+    const inputLab = rgbToLab(r, g, b);
+
+    for (const item of MARD_COLORS_LAB) {
+      const distance = deltaE2000(inputLab, item.lab);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestColor = item.color;
+      }
+    }
+  } else {
+    // 标准模式：使用感知加权 RGB 距离（较快）
+    for (const item of MARD_COLORS_LAB) {
+      const distance = weightedColorDistance(r, g, b, item.rgb.r, item.rgb.g, item.rgb.b);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestColor = item.color;
+      }
     }
   }
 
