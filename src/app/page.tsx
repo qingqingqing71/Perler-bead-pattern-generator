@@ -1125,7 +1125,12 @@ export default function Home() {
               {/* Color Legend */}
               {beadPatternLegend.length > 0 && (
                 <div className="mt-6">
-                  <h3 className="text-md font-semibold mb-3">颜色图例</h3>
+                  <h3 className="text-md font-semibold mb-3">
+                    颜色图例
+                    <span className="ml-2 text-sm font-normal text-slate-500">
+                      ({beadPatternLegend.length}种色号)
+                    </span>
+                  </h3>
                   <div className="flex flex-wrap gap-3">
                     {beadPatternLegend.map((color, index) => (
                       <div key={index} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
