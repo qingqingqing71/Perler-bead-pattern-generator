@@ -35,12 +35,9 @@ const STEP_LABELS: Record<ProcessingStep, string> = {
   done: '处理完成',
 };
 
-// Grid size options
+// Grid size options (预设规格)
 const GRID_OPTIONS = [
-  { value: 15, label: '15 × 15' },
   { value: 25, label: '25 × 25' },
-  { value: 32, label: '32 × 32' },
-  { value: 40, label: '40 × 40' },
   { value: 52, label: '52 × 52' },
   { value: 100, label: '100 × 100' },
 ];
@@ -65,8 +62,10 @@ export default function Home() {
   const [step, setStep] = useState<ProcessingStep>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [gridSize, setGridSize] = useState(25);
-  const [effectiveGridSize, setEffectiveGridSize] = useState(25); // 实际使用的网格数（考虑放大倍数）
+  const [gridWidth, setGridWidth] = useState(25);  // 网格宽度（列数）
+  const [gridHeight, setGridHeight] = useState(25); // 网格高度（行数）
+  const [effectiveGridCols, setEffectiveGridCols] = useState(25); // 实际使用的网格列数（考虑放大倍数）
+  const [effectiveGridRows, setEffectiveGridRows] = useState(25); // 实际使用的网格行数（考虑放大倍数）
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced'); // 颜色匹配精度
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
@@ -281,10 +280,23 @@ export default function Home() {
     }
   }, [removedBgImage, isTransformingAnime]);
 
-  // Regenerate with new grid size (for pixelation only)
+  // Handle grid size selection (preset options)
   const handleGridSizeChange = useCallback(async (newGridSize: number) => {
-    setGridSize(newGridSize);
+    setGridWidth(newGridSize);
+    setGridHeight(newGridSize);
     // Grid size change only affects pixelation, not the main result
+  }, []);
+
+  // Handle custom grid width change
+  const handleGridWidthChange = useCallback((value: number) => {
+    const clampedValue = Math.max(1, Math.min(200, value));
+    setGridWidth(clampedValue);
+  }, []);
+
+  // Handle custom grid height change
+  const handleGridHeightChange = useCallback((value: number) => {
+    const clampedValue = Math.max(1, Math.min(200, value));
+    setGridHeight(clampedValue);
   }, []);
 
   // Handle upscale factor change
@@ -351,22 +363,25 @@ export default function Home() {
       }
 
       // 2倍放大时：图片放大2倍，占比变成1.5倍（0.9 * 1.5 = 1.35）
-      setEffectiveGridSize(gridSize);
+      // 使用较大的网格数进行像素化（保持正方形网格）
+      const maxGridSize = Math.max(gridWidth, gridHeight);
+      setEffectiveGridCols(gridWidth);
+      setEffectiveGridRows(gridHeight);
       const scaleRatio = upscaleFactor === 2 ? 0.9 * 1.5 : 0.9;
       
-      const result = await pixelateImage(sourceImage, gridSize, false, scaleRatio);
+      const result = await pixelateImage(sourceImage, maxGridSize, false, scaleRatio);
       setPixelatedImage(result.fullImage);        // 完整图片（带网格线）
       setPixelatedSubject(result.subjectImage);   // 单独的主体（透明背景）
       
       // 记录使用次数
-      recordUsage('pixelate', gridSize, upscaleFactor);
+      recordUsage('pixelate', maxGridSize, upscaleFactor);
     } catch (err) {
       console.error('Pixelate error:', err);
       setError(err instanceof Error ? err.message : '像素化处理失败');
     } finally {
       setIsPixelating(false);
     }
-  }, [originalImage, gridSize, isPixelating, upscaleFactor, upscaleImage]);
+  }, [originalImage, gridWidth, gridHeight, isPixelating, upscaleFactor, upscaleImage]);
 
   // Generate bead pattern from pixelated subject
   const handleGenerateBeadPattern = useCallback(async () => {
@@ -378,25 +393,25 @@ export default function Home() {
 
     try {
       // 生成不带色号的图纸用于显示在"处理结果"窗口
-      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, false, colorMatchAccuracy);
+      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy);
       setFinalImage(displayResult.image);
       
       // 生成带色号的图纸用于显示在"拼豆图纸"区域
-      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 1, true, colorMatchAccuracy);
+      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy);
       setBeadPatternImage(withCodeResult.image);
       
       // 保存配色方案
       setBeadPatternLegend(displayResult.legend);
       
       // 记录使用次数
-      recordUsage('bead_pattern', effectiveGridSize);
+      recordUsage('bead_pattern', Math.max(effectiveGridCols, effectiveGridRows));
     } catch (err) {
       console.error('Bead pattern error:', err);
       setError(err instanceof Error ? err.message : '拼豆图纸生成失败');
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedSubject, effectiveGridSize, isGeneratingBeadPattern, colorMatchAccuracy]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, isGeneratingBeadPattern, colorMatchAccuracy]);
 
   const handleDownload = useCallback(() => {
     if (!originalImage) return;
@@ -414,22 +429,22 @@ export default function Home() {
 
     const link = document.createElement('a');
     link.href = pixelatedImage;
-    link.download = `pixelated-${effectiveGridSize}x${effectiveGridSize}.png`;
+    link.download = `pixelated-${effectiveGridCols}x${effectiveGridRows}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [pixelatedImage, effectiveGridSize]);
+  }, [pixelatedImage, effectiveGridCols, effectiveGridRows]);
 
   const handleDownloadBeadPattern = useCallback(async () => {
     if (!pixelatedSubject) return;
 
     try {
       // 生成带色号的高清图纸用于下载
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridSize, 3, true, colorMatchAccuracy);
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy);
       
       const link = document.createElement('a');
       link.href = result.image;
-      link.download = `bead-pattern-hd-${effectiveGridSize}x${effectiveGridSize}.png`;
+      link.download = `bead-pattern-hd-${effectiveGridCols}x${effectiveGridRows}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -437,7 +452,7 @@ export default function Home() {
       console.error('HD download error:', err);
       setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridSize, colorMatchAccuracy]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -454,7 +469,10 @@ export default function Home() {
     setIsAlreadyAnime(false);
     setUpscaleFactor(1);
     setUpscaledImage(null);
-    setEffectiveGridSize(25);
+    setEffectiveGridCols(25);
+    setEffectiveGridRows(25);
+    setGridWidth(25);
+    setGridHeight(25);
     setStep('idle');
     setProgress(0);
     setError(null);
@@ -618,11 +636,11 @@ export default function Home() {
                 {GRID_OPTIONS.map((option) => (
                   <Button
                     key={option.value}
-                    variant={gridSize === option.value ? 'default' : 'outline'}
+                    variant={gridWidth === option.value && gridHeight === option.value ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => handleGridSizeChange(option.value)}
                     className={`min-w-[80px] ${
-                      gridSize === option.value 
+                      gridWidth === option.value && gridHeight === option.value 
                         ? 'bg-blue-600 hover:bg-blue-700' 
                         : ''
                     }`}
@@ -630,6 +648,30 @@ export default function Home() {
                     {option.label}
                   </Button>
                 ))}
+              </div>
+              
+              {/* Custom Grid Size Input */}
+              <div className="flex items-center gap-2 ml-4">
+                <span className="text-sm text-slate-500">自定义：</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={gridWidth}
+                    onChange={(e) => handleGridWidthChange(parseInt(e.target.value) || 1)}
+                    className="w-16 h-8 text-center"
+                  />
+                  <span className="text-slate-500">×</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={gridHeight}
+                    onChange={(e) => handleGridHeightChange(parseInt(e.target.value) || 1)}
+                    className="w-16 h-8 text-center"
+                  />
+                </div>
               </div>
               
               {/* Divider */}
@@ -761,7 +803,7 @@ export default function Home() {
               {step === 'done' && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-sm">图片上传成功 - {gridSize}×{gridSize} 网格纸</span>
+                  <span className="text-sm">图片上传成功 - {gridWidth}×{gridHeight} 网格纸</span>
                 </div>
               )}
 
@@ -859,7 +901,7 @@ export default function Home() {
                     <Beaker className="w-5 h-5 text-orange-600" />
                     拼豆图纸
                     <span className="text-sm font-normal text-slate-500 ml-2">
-                      ({effectiveGridSize}×{effectiveGridSize} 格)
+                      ({effectiveGridCols}×{effectiveGridRows} 格)
                     </span>
                   </>
                 ) : (
@@ -961,7 +1003,7 @@ export default function Home() {
                   <Grid2X2 className="w-5 h-5 text-green-600" />
                   像素化结果
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridSize}×{effectiveGridSize} 像素)
+                    ({effectiveGridCols}×{effectiveGridRows} 像素)
                   </span>
                 </h2>
                 <Button
@@ -996,7 +1038,7 @@ export default function Home() {
                   <Beaker className="w-5 h-5 text-orange-600" />
                   拼豆图纸
                   <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridSize}×{effectiveGridSize} 格)
+                    ({effectiveGridCols}×{effectiveGridRows} 格)
                   </span>
                 </h2>
                 <Button
@@ -2615,7 +2657,8 @@ async function generateBeadPattern(
 // Similar to perler_VERSION2: read center pixel only, no flood fill
 async function generateBeadPatternHD(
   subjectImageUrl: string,
-  gridSize: number,
+  gridCols: number,  // 网格列数（宽度）
+  gridRows: number,  // 网格行数（高度）
   scale: number = 3,
   showColorCode: boolean = true,
   colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
@@ -2650,8 +2693,8 @@ async function generateBeadPatternHD(
       const imageData = srcCtx.getImageData(0, 0, squareSize, squareSize);
       
       // Step 2: Calculate cell size
-      const cellWidth = Math.floor(squareSize / gridSize);
-      const cellHeight = Math.floor(squareSize / gridSize);
+      const cellWidth = Math.floor(squareSize / gridCols);
+      const cellHeight = Math.floor(squareSize / gridRows);
       
       // Step 3: Process each grid cell - direct center pixel sampling
       const cellData: Array<{
@@ -2666,8 +2709,8 @@ async function generateBeadPatternHD(
       
       const colorStats = new Map<string, { color: MardColor; count: number }>();
       
-      for (let gridY = 0; gridY < gridSize; gridY++) {
-        for (let gridX = 0; gridX < gridSize; gridX++) {
+      for (let gridY = 0; gridY < gridRows; gridY++) {
+        for (let gridX = 0; gridX < gridCols; gridX++) {
           // Calculate center pixel position
           const startX = gridX * cellWidth;
           const startY = gridY * cellHeight;
@@ -2784,14 +2827,15 @@ async function generateBeadPatternHD(
       const legendPadding = 40 * scale;
       const itemHeight = 50 * scale;
       const itemWidth = 200 * scale;
-      const gridWidth = gridSize * baseCellSize;
+      const gridWidth = gridCols * baseCellSize;
+      const gridHeight = gridRows * baseCellSize;
       const itemsPerRow = Math.max(1, Math.floor((gridWidth + labelPadding * 2 - legendPadding * 2) / itemWidth));
       const legendRows = Math.ceil(sortedColors.length / itemsPerRow);
       const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60 * scale;
       
       // Canvas size: grid with labels on all 4 sides, plus legend at bottom
       const canvasWidth = gridWidth + labelPadding * 2;
-      const canvasHeight = gridWidth + labelPadding * 2 + legendHeight;
+      const canvasHeight = gridHeight + labelPadding * 2 + legendHeight;
       
       const canvas = document.createElement('canvas');
       canvas.width = canvasWidth;
@@ -2811,7 +2855,7 @@ async function generateBeadPatternHD(
       const offsetX = labelPadding;
       const offsetY = labelPadding;
       const patternWidth = gridWidth;
-      const patternHeight = gridWidth;
+      const patternHeight = gridHeight;
       
       // Calculate font size for color codes (same as number labels)
       const codeFontSize = Math.max(10, Math.floor(cellSize * 0.35));
@@ -2823,25 +2867,25 @@ async function generateBeadPatternHD(
       ctx.textBaseline = 'middle';
 
       // Column labels at top
-      for (let x = 0; x < gridSize; x++) {
+      for (let x = 0; x < gridCols; x++) {
         ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY - cellSize / 2);
       }
 
       // Row labels at left
       ctx.textAlign = 'right';
-      for (let y = 0; y < gridSize; y++) {
+      for (let y = 0; y < gridRows; y++) {
         ctx.fillText(`${y + 1}`, offsetX - 5, offsetY + y * cellSize + cellSize / 2);
       }
 
       // Row labels at right
       ctx.textAlign = 'left';
-      for (let y = 0; y < gridSize; y++) {
+      for (let y = 0; y < gridRows; y++) {
         ctx.fillText(`${y + 1}`, offsetX + patternWidth + 5, offsetY + y * cellSize + cellSize / 2);
       }
 
       // Column labels at bottom
       ctx.textAlign = 'center';
-      for (let x = 0; x < gridSize; x++) {
+      for (let x = 0; x < gridCols; x++) {
         ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY + patternHeight + cellSize / 2);
       }
       
@@ -2873,14 +2917,14 @@ async function generateBeadPatternHD(
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
       
-      for (let x = 0; x <= gridSize; x++) {
+      for (let x = 0; x <= gridCols; x++) {
         ctx.beginPath();
         ctx.moveTo(offsetX + x * cellSize, offsetY);
         ctx.lineTo(offsetX + x * cellSize, offsetY + patternHeight);
         ctx.stroke();
       }
       
-      for (let y = 0; y <= gridSize; y++) {
+      for (let y = 0; y <= gridRows; y++) {
         ctx.beginPath();
         ctx.moveTo(offsetX, offsetY + y * cellSize);
         ctx.lineTo(offsetX + patternWidth, offsetY + y * cellSize);
