@@ -24,7 +24,7 @@ import {
   LogOut,
   ZoomIn,
 } from 'lucide-react';
-import { findClosestMardColor, MardColor, ColorMatchAccuracy } from '@/lib/mardColors';
+import { findClosestMardColor, MardColor, ColorMatchAccuracy, SamplingMode } from '@/lib/mardColors';
 
 type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
@@ -69,6 +69,7 @@ export default function Home() {
   const [effectiveGridCols, setEffectiveGridCols] = useState(25); // 实际使用的网格列数（考虑放大倍数）
   const [effectiveGridRows, setEffectiveGridRows] = useState(25); // 实际使用的网格行数（考虑放大倍数）
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced'); // 颜色匹配精度
+  const [samplingMode, setSamplingMode] = useState<SamplingMode>('multi5'); // 采样模式：单点/5点/9点
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 2>(1); // 放大倍数：1倍或2倍
@@ -411,11 +412,11 @@ export default function Home() {
 
     try {
       // 生成不带色号的图纸用于显示在"处理结果"窗口
-      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy);
+      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode);
       setFinalImage(displayResult.image);
       
       // 生成带色号的图纸用于显示在"拼豆图纸"区域
-      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy);
+      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode);
       setBeadPatternImage(withCodeResult.image);
       
       // 保存配色方案
@@ -429,7 +430,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, isGeneratingBeadPattern, colorMatchAccuracy]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, isGeneratingBeadPattern, colorMatchAccuracy, samplingMode]);
 
   const handleDownload = useCallback(() => {
     if (!originalImage) return;
@@ -458,7 +459,7 @@ export default function Home() {
 
     try {
       // 生成带色号的高清图纸用于下载
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy);
+      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode);
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -470,7 +471,7 @@ export default function Home() {
       console.error('HD download error:', err);
       setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy, samplingMode]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -746,6 +747,44 @@ export default function Home() {
                     className={colorMatchAccuracy === 'enhanced' ? 'bg-amber-600 hover:bg-amber-700' : ''}
                   >
                     增强
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Divider */}
+              <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
+              
+              {/* Sampling Mode Selector */}
+              <div className="flex items-center gap-2">
+                <Grid3X3 className="w-5 h-5 text-blue-600" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">采样方式：</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={samplingMode === 'single' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSamplingMode('single')}
+                    className={samplingMode === 'single' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    title="只取中心点一个像素"
+                  >
+                    单点
+                  </Button>
+                  <Button
+                    variant={samplingMode === 'multi5' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSamplingMode('multi5')}
+                    className={samplingMode === 'multi5' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    title="中心+四角共5个点平均"
+                  >
+                    5点
+                  </Button>
+                  <Button
+                    variant={samplingMode === 'multi9' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSamplingMode('multi9')}
+                    className={samplingMode === 'multi9' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    title="3×3网格共9个点平均"
+                  >
+                    9点
                   </Button>
                 </div>
               </div>
@@ -2683,7 +2722,8 @@ async function generateBeadPatternHD(
   gridRows: number,  // 网格行数（高度）
   scale: number = 3,
   showColorCode: boolean = true,
-  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
+  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced',
+  samplingMode: SamplingMode = 'multi5'  // 默认使用5点采样
 ): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -2731,24 +2771,86 @@ async function generateBeadPatternHD(
       
       const colorStats = new Map<string, { color: MardColor; count: number }>();
       
+      // 辅助函数：获取像素颜色
+      const getPixelColor = (x: number, y: number) => {
+        const i = (y * squareSize + x) * 4;
+        return {
+          r: imageData.data[i],
+          g: imageData.data[i + 1],
+          b: imageData.data[i + 2],
+          a: imageData.data[i + 3]
+        };
+      };
+      
+      // 辅助函数：多采样点平均颜色
+      const getMultiSampleColor = (startX: number, startY: number, endX: number, endY: number, mode: SamplingMode) => {
+        const cellW = endX - startX;
+        const cellH = endY - startY;
+        const centerX = Math.floor(startX + cellW / 2);
+        const centerY = Math.floor(startY + cellH / 2);
+        
+        if (mode === 'single') {
+          // 单点采样：只取中心点
+          return getPixelColor(centerX, centerY);
+        }
+        
+        // 多点采样：取多个点平均
+        let samples: Array<{ r: number; g: number; b: number; a: number }> = [];
+        
+        if (mode === 'multi5') {
+          // 5点采样：中心 + 四角（偏内）
+          const offsetX = Math.floor(cellW * 0.25);
+          const offsetY = Math.floor(cellH * 0.25);
+          
+          samples = [
+            getPixelColor(centerX, centerY),                          // 中心
+            getPixelColor(startX + offsetX, startY + offsetY),         // 左上
+            getPixelColor(endX - offsetX - 1, startY + offsetY),       // 右上
+            getPixelColor(startX + offsetX, endY - offsetY - 1),       // 左下
+            getPixelColor(endX - offsetX - 1, endY - offsetY - 1),     // 右下
+          ];
+        } else if (mode === 'multi9') {
+          // 9点采样：3x3网格
+          const stepX = cellW / 4;
+          const stepY = cellH / 4;
+          
+          for (let dy = 0; dy < 3; dy++) {
+            for (let dx = 0; dx < 3; dx++) {
+              const x = Math.floor(startX + stepX * (dx + 1));
+              const y = Math.floor(startY + stepY * (dy + 1));
+              samples.push(getPixelColor(x, y));
+            }
+          }
+        }
+        
+        // 计算平均颜色
+        let totalR = 0, totalG = 0, totalB = 0, totalA = 0, count = 0;
+        for (const s of samples) {
+          totalR += s.r;
+          totalG += s.g;
+          totalB += s.b;
+          totalA += s.a;
+          count++;
+        }
+        
+        return {
+          r: Math.round(totalR / count),
+          g: Math.round(totalG / count),
+          b: Math.round(totalB / count),
+          a: Math.round(totalA / count)
+        };
+      };
+      
       for (let gridY = 0; gridY < gridRows; gridY++) {
         for (let gridX = 0; gridX < gridCols; gridX++) {
-          // Calculate center pixel position
+          // Calculate cell boundaries
           const startX = gridX * cellWidth;
           const startY = gridY * cellHeight;
           const endX = Math.min((gridX + 1) * cellWidth, squareSize);
           const endY = Math.min((gridY + 1) * cellHeight, squareSize);
           
-          // Direct center pixel sampling
-          const centerX = Math.floor((startX + endX) / 2);
-          const centerY = Math.floor((startY + endY) / 2);
-          
-          // Get center pixel color
-          const i = (centerY * squareSize + centerX) * 4;
-          const r = imageData.data[i];
-          const g = imageData.data[i + 1];
-          const b = imageData.data[i + 2];
-          const a = imageData.data[i + 3];
+          // Multi-point sampling for better color accuracy
+          const { r, g, b, a } = getMultiSampleColor(startX, startY, endX, endY, samplingMode);
           
           cellData.push({
             gridX,
