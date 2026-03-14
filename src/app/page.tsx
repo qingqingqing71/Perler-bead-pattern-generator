@@ -2839,7 +2839,7 @@ async function generateBeadPatternHD(
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions (at bottom, all items in one row)
+      // Calculate legend dimensions (at bottom, 2 rows, 10 items per row)
       const sortedColors = Array.from(colorStats.entries())
         .filter(([code, _]) => code !== 'W')
         .sort((a, b) => b[1].count - a[1].count);
@@ -2847,29 +2847,34 @@ async function generateBeadPatternHD(
       const totalBeads = sortedColors.reduce((sum, [_, data]) => sum + data.count, 0);
       
       const legendPadding = 40 * scale;
-      const itemGap = 20 * scale;  // 色号项之间的间距
+      const itemGap = 15 * scale;  // 色号项之间的间距
       const colorBoxSize = 30 * scale;  // 色块大小
       const itemHeight = 50 * scale;
       const gridWidth = gridCols * baseCellSize;
       const gridHeight = gridRows * baseCellSize;
       
-      // 计算每个色号项的宽度：色块 + 间距 + 色号文字 + 间距 + 数量
-      // 预估每个色号项宽度约 80*scale
-      const estimatedItemWidth = 80 * scale;
-      const allItemsWidth = sortedColors.length * estimatedItemWidth + (sortedColors.length - 1) * itemGap;
+      // 固定每排10个色号，共两排
+      const itemsPerRow = 10;
+      const legendRows = 2;
+      
+      // 计算每个色号项的宽度（预估）
+      const estimatedItemWidth = 70 * scale;
+      
+      // 计算图例区域所需宽度：10个色号项 + 间距
+      const legendWidth = itemsPerRow * estimatedItemWidth + (itemsPerRow - 1) * itemGap + legendPadding * 2;
       
       // 画布宽度取网格宽度和图例所需宽度的较大值
-      const legendWidth = Math.max(allItemsWidth + legendPadding * 2, gridWidth + labelPadding * 2);
       const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendWidth);
       
-      // 计算一行能放多少个色号项
-      const availableWidth = canvasWidth - legendPadding * 2;
-      const itemsPerRow = Math.max(1, Math.floor((availableWidth + itemGap) / (estimatedItemWidth + itemGap)));
-      const legendRows = Math.ceil(sortedColors.length / itemsPerRow);
-      const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60 * scale;
+      // 图例高度：标题 + 两排色号
+      const legendHeight = legendPadding + 40 * scale + legendRows * itemHeight + legendPadding;
       
       // Canvas size: grid with labels on all 4 sides, plus legend at bottom
       const canvasHeight = gridHeight + labelPadding * 2 + legendHeight;
+      
+      // 计算图纸部分在画布中的居中偏移
+      const gridAreaWidth = gridWidth + labelPadding * 2;
+      const gridOffsetX = (canvasWidth - gridAreaWidth) / 2;
       
       const canvas = document.createElement('canvas');
       canvas.width = canvasWidth;
@@ -2886,7 +2891,8 @@ async function generateBeadPatternHD(
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
       
       const cellSize = baseCellSize;
-      const offsetX = labelPadding;
+      // 图纸部分居中偏移
+      const offsetX = gridOffsetX + labelPadding;
       const offsetY = labelPadding;
       const patternWidth = gridWidth;
       const patternHeight = gridHeight;
@@ -3002,44 +3008,49 @@ async function generateBeadPatternHD(
           legendY + 35 * scale
         );
         
-        // Draw legend items - 横排摆放
-        ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
+        // Draw legend items - 两排，每排10个
+        ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
         
-        // 计算每个色号项实际需要的宽度
-        const codeTextWidth = ctx.measureText('W1').width;  // 色号文字宽度
-        const countTextWidth = ctx.measureText('999个').width;  // 数量文字宽度
-        const actualItemWidth = colorBoxSize + 10 * scale + codeTextWidth + 10 * scale + countTextWidth + itemGap;
+        // 计算每个色号项的实际宽度（色块 + 色号 + 数量）
+        const codeTextWidth = ctx.measureText('W1').width;
+        const countTextWidth = ctx.measureText('999').width;
+        const actualItemWidth = colorBoxSize + 8 * scale + countTextWidth + itemGap;
         
-        // 重新计算每行能放多少个
-        const actualItemsPerRow = Math.max(1, Math.floor((canvasWidth - legendPadding * 2 + itemGap) / actualItemWidth));
+        // 计算图例起始位置（居中）
+        const totalLegendWidth = itemsPerRow * actualItemWidth - itemGap;
+        const legendStartX = (canvasWidth - totalLegendWidth) / 2;
         
         sortedColors.forEach(([code, data], index) => {
-          const row = Math.floor(index / actualItemsPerRow);
-          const col = index % actualItemsPerRow;
+          // 固定每排10个，最多两排
+          const row = Math.floor(index / itemsPerRow);
+          const col = index % itemsPerRow;
           
-          const itemStartX = legendPadding + col * actualItemWidth;
+          // 如果超过两排，跳过
+          if (row >= 2) return;
+          
+          const itemStartX = legendStartX + col * actualItemWidth;
           const y = legendY + legendPadding + 40 * scale + row * itemHeight;
           const rgb = hexToRgb(data.color.hex);
           
           // Draw color swatch
           ctx.fillStyle = data.color.hex;
-          ctx.fillRect(itemStartX, y - 15 * scale, colorBoxSize, colorBoxSize);
+          ctx.fillRect(itemStartX, y - 12 * scale, colorBoxSize, colorBoxSize);
           ctx.strokeStyle = '#CCCCCC';
           ctx.lineWidth = 1;
-          ctx.strokeRect(itemStartX, y - 15 * scale, colorBoxSize, colorBoxSize);
+          ctx.strokeRect(itemStartX, y - 12 * scale, colorBoxSize, colorBoxSize);
           
           // Draw color code on the swatch
           const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
           ctx.fillStyle = textColor;
           ctx.textAlign = 'center';
-          ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
+          ctx.font = `bold ${Math.floor(scale * 11)}px Arial`;
           ctx.fillText(code, itemStartX + colorBoxSize / 2, y);
           
           // Draw count on the right
           ctx.fillStyle = '#000000';
           ctx.textAlign = 'left';
-          ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
-          ctx.fillText(`${data.count}个`, itemStartX + colorBoxSize + 10 * scale, y);
+          ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
+          ctx.fillText(`${data.count}`, itemStartX + colorBoxSize + 5 * scale, y);
         });
       }
 
