@@ -2640,8 +2640,8 @@ async function generateBeadPattern(
         ctx.fillText(block.color.code, centerX, centerY);
       }
 
-      // Draw grid lines on top (白色网格线)
-      ctx.strokeStyle = '#FFFFFF';
+      // Draw grid lines on top (灰色细线)
+      ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = 1;
 
       for (let i = 0; i <= gridSize; i++) {
@@ -2953,8 +2953,8 @@ async function generateBeadPatternHD(
         ctx.fillRect(x, y, cellSize, cellSize);
       }
       
-      // Step 8: Draw grid lines (白色网格线)
-      ctx.strokeStyle = '#FFFFFF';
+      // Step 8: Draw grid lines (灰色细线)
+      ctx.strokeStyle = '#d1d5db';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
       
       for (let x = 0; x <= gridCols; x++) {
