@@ -2853,9 +2853,9 @@ async function generateBeadPatternHD(
       const gridWidth = gridCols * baseCellSize;
       const gridHeight = gridRows * baseCellSize;
       
-      // 固定每排10个色号，共三排（最多30种颜色）
-      const itemsPerRow = 10;
-      const legendRows = 3;
+      // 固定每排15个色号，共两排（最多30种颜色）
+      const itemsPerRow = 15;
+      const legendRows = 2;
       
       // 计算每个色号项的宽度（预估）
       const estimatedItemWidth = 70 * scale;
@@ -2866,7 +2866,7 @@ async function generateBeadPatternHD(
       // 画布宽度取网格宽度和图例所需宽度的较大值
       const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendWidth);
       
-      // 图例高度：标题 + 三排色号
+      // 图例高度：标题 + 两排色号
       const legendHeight = legendPadding + 40 * scale + legendRows * itemHeight + legendPadding;
       
       // Canvas size: grid with labels on all 4 sides, plus legend at bottom
@@ -3025,8 +3025,8 @@ async function generateBeadPatternHD(
           const row = Math.floor(index / itemsPerRow);
           const col = index % itemsPerRow;
           
-          // 如果超过三排，跳过
-          if (row >= 3) return;
+          // 如果超过两排，跳过
+          if (row >= 2) return;
           
           const itemStartX = legendStartX + col * actualItemWidth;
           const y = legendY + legendPadding + 40 * scale + row * itemHeight;
