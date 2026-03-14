@@ -2953,8 +2953,8 @@ async function generateBeadPatternHD(
         ctx.fillRect(x, y, cellSize, cellSize);
       }
       
-      // Step 8: Draw grid lines
-      ctx.strokeStyle = '#000000';
+      // Step 8: Draw grid lines (白色网格线)
+      ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
       
       for (let x = 0; x <= gridCols; x++) {
