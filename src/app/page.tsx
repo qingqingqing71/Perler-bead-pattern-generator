@@ -2839,7 +2839,7 @@ async function generateBeadPatternHD(
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions (at bottom, multiple items per row)
+      // Calculate legend dimensions (at bottom, all items in one row)
       const sortedColors = Array.from(colorStats.entries())
         .filter(([code, _]) => code !== 'W')
         .sort((a, b) => b[1].count - a[1].count);
@@ -2847,16 +2847,28 @@ async function generateBeadPatternHD(
       const totalBeads = sortedColors.reduce((sum, [_, data]) => sum + data.count, 0);
       
       const legendPadding = 40 * scale;
+      const itemGap = 20 * scale;  // 色号项之间的间距
+      const colorBoxSize = 30 * scale;  // 色块大小
       const itemHeight = 50 * scale;
-      const itemWidth = 200 * scale;
       const gridWidth = gridCols * baseCellSize;
       const gridHeight = gridRows * baseCellSize;
-      const itemsPerRow = Math.max(1, Math.floor((gridWidth + labelPadding * 2 - legendPadding * 2) / itemWidth));
+      
+      // 计算每个色号项的宽度：色块 + 间距 + 色号文字 + 间距 + 数量
+      // 预估每个色号项宽度约 80*scale
+      const estimatedItemWidth = 80 * scale;
+      const allItemsWidth = sortedColors.length * estimatedItemWidth + (sortedColors.length - 1) * itemGap;
+      
+      // 画布宽度取网格宽度和图例所需宽度的较大值
+      const legendWidth = Math.max(allItemsWidth + legendPadding * 2, gridWidth + labelPadding * 2);
+      const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendWidth);
+      
+      // 计算一行能放多少个色号项
+      const availableWidth = canvasWidth - legendPadding * 2;
+      const itemsPerRow = Math.max(1, Math.floor((availableWidth + itemGap) / (estimatedItemWidth + itemGap)));
       const legendRows = Math.ceil(sortedColors.length / itemsPerRow);
       const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60 * scale;
       
       // Canvas size: grid with labels on all 4 sides, plus legend at bottom
-      const canvasWidth = gridWidth + labelPadding * 2;
       const canvasHeight = gridHeight + labelPadding * 2 + legendHeight;
       
       const canvas = document.createElement('canvas');
@@ -2990,36 +3002,44 @@ async function generateBeadPatternHD(
           legendY + 35 * scale
         );
         
-        // Draw legend items
+        // Draw legend items - 横排摆放
         ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
         
+        // 计算每个色号项实际需要的宽度
+        const codeTextWidth = ctx.measureText('W1').width;  // 色号文字宽度
+        const countTextWidth = ctx.measureText('999个').width;  // 数量文字宽度
+        const actualItemWidth = colorBoxSize + 10 * scale + codeTextWidth + 10 * scale + countTextWidth + itemGap;
+        
+        // 重新计算每行能放多少个
+        const actualItemsPerRow = Math.max(1, Math.floor((canvasWidth - legendPadding * 2 + itemGap) / actualItemWidth));
+        
         sortedColors.forEach(([code, data], index) => {
-          const row = Math.floor(index / itemsPerRow);
-          const col = index % itemsPerRow;
+          const row = Math.floor(index / actualItemsPerRow);
+          const col = index % actualItemsPerRow;
           
-          const x = legendPadding + col * itemWidth;
+          const itemStartX = legendPadding + col * actualItemWidth;
           const y = legendY + legendPadding + 40 * scale + row * itemHeight;
           const rgb = hexToRgb(data.color.hex);
           
           // Draw color swatch
           ctx.fillStyle = data.color.hex;
-          ctx.fillRect(x, y - 15 * scale, 30 * scale, 30 * scale);
+          ctx.fillRect(itemStartX, y - 15 * scale, colorBoxSize, colorBoxSize);
           ctx.strokeStyle = '#CCCCCC';
           ctx.lineWidth = 1;
-          ctx.strokeRect(x, y - 15 * scale, 30 * scale, 30 * scale);
+          ctx.strokeRect(itemStartX, y - 15 * scale, colorBoxSize, colorBoxSize);
           
           // Draw color code on the swatch
           const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
           ctx.fillStyle = textColor;
           ctx.textAlign = 'center';
           ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
-          ctx.fillText(code, x + 15 * scale, y);
+          ctx.fillText(code, itemStartX + colorBoxSize / 2, y);
           
           // Draw count on the right
           ctx.fillStyle = '#000000';
           ctx.textAlign = 'left';
           ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
-          ctx.fillText(`${data.count}个`, x + 40 * scale, y);
+          ctx.fillText(`${data.count}个`, itemStartX + colorBoxSize + 10 * scale, y);
         });
       }
 
