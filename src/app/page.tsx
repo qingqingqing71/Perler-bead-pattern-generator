@@ -2643,9 +2643,9 @@ async function generateBeadPatternHD(
       srcCtx.fillRect(0, 0, squareSize, squareSize);
       
       // Draw image centered
-      const offsetX = (squareSize - img.width) / 2;
-      const offsetY = (squareSize - img.height) / 2;
-      srcCtx.drawImage(img, offsetX, offsetY);
+      const srcOffsetX = (squareSize - img.width) / 2;
+      const srcOffsetY = (squareSize - img.height) / 2;
+      srcCtx.drawImage(img, srcOffsetX, srcOffsetY);
       
       const imageData = srcCtx.getImageData(0, 0, squareSize, squareSize);
       
@@ -2770,18 +2770,32 @@ async function generateBeadPatternHD(
         } : { r: 255, g: 255, b: 255 };
       }
       
-      // Step 5: Create output canvas
-      const gridAreaSize = 800 * scale;
-      const marginSize = 50 * scale;
-      const legendWidth = 200 * scale;
-      const gridTotalSize = gridAreaSize + marginSize * 2;
-      const totalWidth = gridTotalSize + legendWidth;
-      const totalHeight = gridTotalSize;
-      const cellSize = gridAreaSize / gridSize;
+      // Step 5: Create output canvas with legend at bottom
+      const baseCellSize = 20 * scale;
+      const labelPadding = 30 * scale;
+      
+      // Calculate legend dimensions (at bottom, multiple items per row)
+      const sortedColors = Array.from(colorStats.entries())
+        .filter(([code, _]) => code !== 'W')
+        .sort((a, b) => b[1].count - a[1].count);
+      
+      const totalBeads = sortedColors.reduce((sum, [_, data]) => sum + data.count, 0);
+      
+      const legendPadding = 40 * scale;
+      const itemHeight = 50 * scale;
+      const itemWidth = 200 * scale;
+      const gridWidth = gridSize * baseCellSize;
+      const itemsPerRow = Math.max(1, Math.floor((gridWidth + labelPadding * 2 - legendPadding * 2) / itemWidth));
+      const legendRows = Math.ceil(sortedColors.length / itemsPerRow);
+      const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60 * scale;
+      
+      // Canvas size: grid with labels on all 4 sides, plus legend at bottom
+      const canvasWidth = gridWidth + labelPadding * 2;
+      const canvasHeight = gridWidth + labelPadding * 2 + legendHeight;
       
       const canvas = document.createElement('canvas');
-      canvas.width = totalWidth;
-      canvas.height = totalHeight;
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
       
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -2791,29 +2805,52 @@ async function generateBeadPatternHD(
       
       // Fill white background
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, totalWidth, totalHeight);
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
       
-      // Calculate font size
-      const maxTextWidth = cellSize * 0.75;
-      const fontSizeFromWidth = Math.floor(maxTextWidth / 2.5);
-      const fontSizeFromHeight = Math.floor(cellSize * 0.5);
-      const fontSize = Math.max(8, Math.min(fontSizeFromWidth, fontSizeFromHeight, Math.floor(cellSize * 0.4)));
+      const cellSize = baseCellSize;
+      const offsetX = labelPadding;
+      const offsetY = labelPadding;
+      const patternWidth = gridWidth;
+      const patternHeight = gridWidth;
       
-      // Step 6: Fill grid cells
-      const drawnBlocks: Array<{
-        x: number;
-        y: number;
-        color: MardColor;
-        rgbR: number;
-        rgbG: number;
-        rgbB: number;
-      }> = [];
+      // Calculate font size for color codes (same as number labels)
+      const codeFontSize = Math.max(10, Math.floor(cellSize * 0.35));
       
+      // Step 6: Draw grid labels on all four sides (number labels)
+      ctx.fillStyle = '#000000';
+      ctx.font = `bold ${Math.max(12, Math.floor(scale * 12))}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Column labels at top
+      for (let x = 0; x < gridSize; x++) {
+        ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY - cellSize / 2);
+      }
+
+      // Row labels at left
+      ctx.textAlign = 'right';
+      for (let y = 0; y < gridSize; y++) {
+        ctx.fillText(`${y + 1}`, offsetX - 5, offsetY + y * cellSize + cellSize / 2);
+      }
+
+      // Row labels at right
+      ctx.textAlign = 'left';
+      for (let y = 0; y < gridSize; y++) {
+        ctx.fillText(`${y + 1}`, offsetX + patternWidth + 5, offsetY + y * cellSize + cellSize / 2);
+      }
+
+      // Column labels at bottom
+      ctx.textAlign = 'center';
+      for (let x = 0; x < gridSize; x++) {
+        ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY + patternHeight + cellSize / 2);
+      }
+      
+      // Step 7: Fill grid cells
       const whiteMardColor: MardColor = { code: 'W', hex: '#FFFFFF' };
       
       for (const cell of cellData) {
-        const x = marginSize + cell.gridX * cellSize;
-        const y = marginSize + cell.gridY * cellSize;
+        const x = offsetX + cell.gridX * cellSize;
+        const y = offsetY + cell.gridY * cellSize;
         
         let finalColor: MardColor;
         let finalRgb: { r: number; g: number; b: number };
@@ -2830,148 +2867,95 @@ async function generateBeadPatternHD(
         // Fill cell with color
         ctx.fillStyle = finalColor.hex;
         ctx.fillRect(x, y, cellSize, cellSize);
-        
-        drawnBlocks.push({
-          x, y,
-          color: finalColor,
-          rgbR: finalRgb.r,
-          rgbG: finalRgb.g,
-          rgbB: finalRgb.b
-        });
-      }
-      
-      // Step 7: Draw MARD color codes (only if showColorCode is true)
-      if (showColorCode) {
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        for (const block of drawnBlocks) {
-          // Skip white cells (no color code)
-          if (block.color.code === 'W') continue;
-          
-          const brightness = (block.rgbR * 299 + block.rgbG * 587 + block.rgbB * 114) / 1000;
-          ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
-          
-          ctx.font = `bold ${fontSize}px Arial`;
-          const centerX = block.x + cellSize / 2;
-          const centerY = block.y + cellSize / 2;
-          ctx.fillText(block.color.code, centerX, centerY);
-        }
       }
       
       // Step 8: Draw grid lines
-      ctx.strokeStyle = '#d1d5db';
+      ctx.strokeStyle = '#000000';
       ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
-
-      for (let i = 0; i <= gridSize; i++) {
-        const pos = marginSize + i * cellSize;
-        
+      
+      for (let x = 0; x <= gridSize; x++) {
         ctx.beginPath();
-        ctx.moveTo(pos, marginSize);
-        ctx.lineTo(pos, marginSize + gridAreaSize);
-        ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(marginSize, pos);
-        ctx.lineTo(marginSize + gridAreaSize, pos);
+        ctx.moveTo(offsetX + x * cellSize, offsetY);
+        ctx.lineTo(offsetX + x * cellSize, offsetY + patternHeight);
         ctx.stroke();
       }
-
-      // Draw thicker lines every 5 cells
-      if (gridSize >= 10) {
-        ctx.strokeStyle = '#9ca3af';
-        ctx.lineWidth = Math.max(1.5, Math.floor(scale * 0.75));
-        
-        for (let i = 0; i <= gridSize; i += 5) {
-          const pos = marginSize + i * cellSize;
-          
-          ctx.beginPath();
-          ctx.moveTo(pos, marginSize);
-          ctx.lineTo(pos, marginSize + gridAreaSize);
-          ctx.stroke();
-          
-          ctx.beginPath();
-          ctx.moveTo(marginSize, pos);
-          ctx.lineTo(marginSize + gridAreaSize, pos);
-          ctx.stroke();
-        }
+      
+      for (let y = 0; y <= gridSize; y++) {
+        ctx.beginPath();
+        ctx.moveTo(offsetX, offsetY + y * cellSize);
+        ctx.lineTo(offsetX + patternWidth, offsetY + y * cellSize);
+        ctx.stroke();
       }
-
-      // Step 9: Draw edge numbers
-      ctx.fillStyle = '#333333';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const numberFontSize = Math.max(14, Math.min(24, marginSize / 2.5));
-      ctx.font = `bold ${numberFontSize}px Arial`;
-
-      for (let i = 0; i < gridSize; i++) {
-        const xPos = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), xPos, marginSize / 2);
-        ctx.fillText(String(i + 1), xPos, gridTotalSize - marginSize / 2);
-      }
-
-      for (let i = 0; i < gridSize; i++) {
-        const yPos = marginSize + (i + 0.5) * cellSize;
-        ctx.fillText(String(i + 1), marginSize / 2, yPos);
-        ctx.fillText(String(i + 1), gridTotalSize - marginSize / 2, yPos);
-      }
-
-      // Step 10: Draw color legend on the right side
-      const legendX = gridTotalSize + 20 * scale;
-      const legendStartY = marginSize;
-      const legendItemHeight = 40 * scale;
-      const colorBoxSize = 30 * scale;
       
-      // Legend title
-      ctx.fillStyle = '#333333';
-      ctx.textAlign = 'left';
-      ctx.font = `bold ${16 * scale}px Arial`;
-      ctx.fillText('色号图例', legendX, legendStartY - 10 * scale);
-      
-      // Sort colors by code (exclude white)
-      const sortedColors = Array.from(colorStats.entries())
-        .filter(([code, _]) => code !== 'W')
-        .sort((a, b) => a[0].localeCompare(b[0]));
-      
-      ctx.font = `${14 * scale}px Arial`;
-      
-      sortedColors.forEach(([code, data], index) => {
-        const y = legendStartY + index * legendItemHeight;
-        const rgb = hexToRgb(data.color.hex);
-        
-        // Draw color box
-        ctx.fillStyle = data.color.hex;
-        ctx.fillRect(legendX, y, colorBoxSize, colorBoxSize);
-        
-        // Draw border for white
-        if (data.color.hex.toUpperCase() === '#FFFFFF') {
-          ctx.strokeStyle = '#d1d5db';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(legendX, y, colorBoxSize, colorBoxSize);
-        }
-        
-        // Draw color code and count
-        const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
-        ctx.fillStyle = textColor;
+      // Step 9: Draw color codes (only if showColorCode is true)
+      if (showColorCode) {
         ctx.textAlign = 'center';
-        ctx.font = `bold ${12 * scale}px Arial`;
-        ctx.fillText(code, legendX + colorBoxSize / 2, y + colorBoxSize / 2 + 4 * scale);
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${codeFontSize}px Arial`;
         
-        // Draw count on the right
-        ctx.fillStyle = '#333333';
-        ctx.textAlign = 'left';
-        ctx.font = `${14 * scale}px Arial`;
-        ctx.fillText(`×${data.count}`, legendX + colorBoxSize + 10 * scale, y + colorBoxSize / 2 + 5 * scale);
-      });
+        for (const cell of cellData) {
+          if (!cell.mardColor) continue;
+          
+          const rgb = hexToRgb(cell.mardColor.hex);
+          const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+          ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+          
+          const x = offsetX + cell.gridX * cellSize + cellSize / 2;
+          const y = offsetY + cell.gridY * cellSize + cellSize / 2;
+          ctx.fillText(cell.mardColor.code, x, y);
+        }
+      }
       
-      // Total count
-      const totalBeads = Array.from(colorStats.values())
-        .filter(data => data.color.code !== 'W')
-        .reduce((sum, data) => sum + data.count, 0);
-      ctx.fillStyle = '#333333';
-      ctx.textAlign = 'left';
-      ctx.font = `bold ${14 * scale}px Arial`;
-      ctx.fillText(`总计: ${totalBeads} 颗`, legendX, legendStartY + sortedColors.length * legendItemHeight + 20 * scale);
+      // Step 10: Draw legend area at bottom
+      if (sortedColors.length > 0) {
+        const legendY = offsetY + patternHeight + labelPadding;
+        
+        // Draw legend area background
+        ctx.fillStyle = '#F8F9FA';
+        ctx.fillRect(0, legendY, canvasWidth, legendHeight);
+        
+        // Draw legend title (centered)
+        ctx.fillStyle = '#000000';
+        ctx.font = `bold ${Math.floor(scale * 20)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          `拼豆色号图例 (${sortedColors.length}种色号, 共${totalBeads}个拼豆)`,
+          canvasWidth / 2,
+          legendY + 35 * scale
+        );
+        
+        // Draw legend items
+        ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
+        
+        sortedColors.forEach(([code, data], index) => {
+          const row = Math.floor(index / itemsPerRow);
+          const col = index % itemsPerRow;
+          
+          const x = legendPadding + col * itemWidth;
+          const y = legendY + legendPadding + 40 * scale + row * itemHeight;
+          const rgb = hexToRgb(data.color.hex);
+          
+          // Draw color swatch
+          ctx.fillStyle = data.color.hex;
+          ctx.fillRect(x, y - 15 * scale, 30 * scale, 30 * scale);
+          ctx.strokeStyle = '#CCCCCC';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y - 15 * scale, 30 * scale, 30 * scale);
+          
+          // Draw color code on the swatch
+          const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
+          ctx.fillText(code, x + 15 * scale, y);
+          
+          // Draw count on the right
+          ctx.fillStyle = '#000000';
+          ctx.textAlign = 'left';
+          ctx.font = `bold ${Math.floor(scale * 14)}px Arial`;
+          ctx.fillText(`${data.count}个`, x + 40 * scale, y);
+        });
+      }
 
       // Build legend with counts
       const legend = sortedColors.map(([code, data]) => ({
