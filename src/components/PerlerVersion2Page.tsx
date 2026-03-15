@@ -311,13 +311,17 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
             b = color.b;
             a = color.a;
           } else {
-            // 5点采样：中心 + 四角（只计算非透明点）
+            // 5点采样：中心 + 四个象限中心（均匀分布）
+            const cellW = endX - startX;
+            const cellH = endY - startY;
+            
+            // 5点位置：中心 + 四个象限的中心（更均匀的分布）
             const points = [
-              { x: centerX, y: centerY },                              // 中心
-              { x: startX, y: startY },                                // 左上角
-              { x: endX - 1, y: startY },                              // 右上角
-              { x: startX, y: endY - 1 },                              // 左下角
-              { x: endX - 1, y: endY - 1 }                             // 右下角
+              { x: centerX, y: centerY },                                    // 中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.25) },  // 左上象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.25) },  // 右上象限中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.75) },  // 左下象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.75) }   // 右下象限中心
             ];
 
             let sumR = 0, sumG = 0, sumB = 0, validCount = 0;

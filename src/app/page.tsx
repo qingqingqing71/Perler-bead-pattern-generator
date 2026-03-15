@@ -2747,31 +2747,45 @@ async function generateBeadPatternV2(
             b = color.b;
             a = color.a;
           } else if (samplingMode === 'multi5') {
-            // 5点采样：中心 + 四角
+            // 5点采样：中心 + 四个象限中心（均匀分布）
             const cellW = endX - startX;
             const cellH = endY - startY;
             
-            // 5点位置：中心 + 四角
+            // 5点位置：中心 + 四个象限的中心（更均匀的分布）
             const points = [
-              { x: centerX, y: centerY },                              // 中心
-              { x: startX, y: startY },                                // 左上角
-              { x: endX - 1, y: startY },                              // 右上角
-              { x: startX, y: endY - 1 },                              // 左下角
-              { x: endX - 1, y: endY - 1 }                             // 右下角
+              { x: centerX, y: centerY },                                    // 中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.25) },  // 左上象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.25) },  // 右上象限中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.75) },  // 左下象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.75) }   // 右下象限中心
             ];
+
+            let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
+            let hasValidPixel = false;
             
-            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
             points.forEach(p => {
               const color = getPixelColor(p.x, p.y);
-              sumR += color.r;
-              sumG += color.g;
-              sumB += color.b;
-              sumA += color.a;
+              // 只计算非透明点（a >= 128）
+              if (color.a >= 128) {
+                sumR += color.r;
+                sumG += color.g;
+                sumB += color.b;
+                validCount++;
+                hasValidPixel = true;
+              }
             });
-            r = Math.round(sumR / 5);
-            g = Math.round(sumG / 5);
-            b = Math.round(sumB / 5);
-            a = Math.round(sumA / 5);
+            
+            if (hasValidPixel) {
+              r = Math.round(sumR / validCount);
+              g = Math.round(sumG / validCount);
+              b = Math.round(sumB / validCount);
+              a = 255;
+            } else {
+              r = 255;
+              g = 255;
+              b = 255;
+              a = 0;
+            }
           } else {
             // 9点采样：3×3网格
             const cellW = endX - startX;
@@ -3198,13 +3212,53 @@ async function generateBeadPatternHD(
           // Get pixel color based on sampling mode
           let r: number, g: number, b: number, a: number;
           
-          if (samplingMode === 'single' || samplingMode === 'multi5') {
-            // 单点/5点采样：只取中心点（目前5点暂用单点）
+          if (samplingMode === 'single') {
+            // 单点采样：只取中心点
             const color = getPixelColor(centerX, centerY);
             r = color.r;
             g = color.g;
             b = color.b;
             a = color.a;
+          } else if (samplingMode === 'multi5') {
+            // 5点采样：中心 + 四个象限中心（均匀分布）
+            const cellW = endX - startX;
+            const cellH = endY - startY;
+            
+            // 5点位置：中心 + 四个象限的中心（更均匀的分布）
+            const points = [
+              { x: centerX, y: centerY },                                    // 中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.25) },  // 左上象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.25) },  // 右上象限中心
+              { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.75) },  // 左下象限中心
+              { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.75) }   // 右下象限中心
+            ];
+
+            let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
+            let hasValidPixel = false;
+            
+            points.forEach(p => {
+              const color = getPixelColor(p.x, p.y);
+              // 只计算非透明点（a >= 128）
+              if (color.a >= 128) {
+                sumR += color.r;
+                sumG += color.g;
+                sumB += color.b;
+                validCount++;
+                hasValidPixel = true;
+              }
+            });
+            
+            if (hasValidPixel) {
+              r = Math.round(sumR / validCount);
+              g = Math.round(sumG / validCount);
+              b = Math.round(sumB / validCount);
+              a = 255;
+            } else {
+              r = 255;
+              g = 255;
+              b = 255;
+              a = 0;
+            }
           } else {
             // 9点采样：3×3网格
             const cellW = endX - startX;
