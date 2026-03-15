@@ -845,28 +845,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     link.click();
   };
 
-  const exportColorList = () => {
-    if (!pixelGrid || colorStats.size === 0) return;
-
-    const colorList = Array.from(colorStats.entries())
-      .map(([index, count]) => ({
-        colorCode: beadColors[index]?.colorCode || '',
-        hex: beadColors[index]?.hex || '#FFFFFF',
-        count
-      }))
-      .sort((a, b) => b.count - a.count);
-
-    const header = '拼豆色号统计表\n' + '='.repeat(40) + '\n\n';
-    const summary = `总计使用色号: ${colorList.length}\n拼豆总数: ${colorList.reduce((sum, item) => sum + item.count, 0)}\n\n`;
-    const content = colorList.map(c => `${c.colorCode} (${c.hex}): ${c.count} 个`).join('\n');
-
-    const blob = new Blob([header + summary + content], { type: 'text/plain' });
-    const link = document.createElement('a');
-    link.download = 'bead-color-list.txt';
-    link.href = URL.createObjectURL(blob);
-    link.click();
-  };
-
   useEffect(() => {
     renderBeadGrid();
     renderBeadEffect();
@@ -880,7 +858,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
             自助拼豆图纸生成器
           </h1>
           <p className="text-gray-600">
-            上传像素图片，自动转换为拼豆图纸
+            上传图片，自动转成拼豆图纸
           </p>
         </div>
 
@@ -1186,7 +1164,18 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
         {/* 拼豆图纸预览 */}
         <Card className="mb-6 p-6">
-          <h2 className="text-xl font-semibold mb-4">拼豆图纸预览</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">拼豆图纸预览</h2>
+            {pixelGrid && (
+              <Button
+                onClick={exportImage}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                导出拼豆图纸
+              </Button>
+            )}
+          </div>
           <div className="border rounded-lg bg-white p-4">
             {pixelGrid ? (
               <canvas
@@ -1199,59 +1188,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
               </div>
             )}
           </div>
-
-          {pixelGrid && (
-            <div className="mt-4 flex gap-3">
-              <Button
-                onClick={exportImage}
-                className="flex-1"
-                variant="default"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                导出图片
-              </Button>
-              <Button
-                onClick={exportColorList}
-                className="flex-1"
-                variant="outline"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                导出色号表
-              </Button>
-            </div>
-          )}
         </Card>
-
-        {/* 图纸信息 */}
-        {pixelGrid && (
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">图纸信息</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600">网格尺寸</p>
-                <p className="font-semibold">
-                  {pixelGrid.width} x {pixelGrid.height}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-600">拼豆数量</p>
-                <p className="font-semibold">
-                  {pixelGrid.pixels.flat().filter(c => c >= 0).length}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-600">使用颜色数</p>
-                <p className="font-semibold">
-                  {new Set(pixelGrid.pixels.flat()).size - 1}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-600">可用色号</p>
-                <p className="font-semibold">{beadColors.length}</p>
-              </div>
-            </div>
-          </Card>
-        )}
       </div>
     </div>
   );
