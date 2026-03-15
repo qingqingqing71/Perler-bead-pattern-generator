@@ -7,13 +7,22 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Upload, Download, Grid3x3, Type } from 'lucide-react';
-import { MARD_COLORS, MardColor } from '@/lib/mardColors';
+
+// 与 perler_VERSION2 完全一致的颜色数据结构
+interface BeadColor {
+  colorName: string;
+  colorCode: string;
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+}
 
 interface PixelGrid {
   width: number;
   height: number;
   pixels: number[][]; // color indices
-  gridColors: MardColor[][]; // matched bead colors for each grid
+  gridColors: BeadColor[][]; // matched bead colors for each grid
 }
 
 interface PerlerVersion2PageProps {
@@ -21,6 +30,8 @@ interface PerlerVersion2PageProps {
 }
 
 export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) {
+  // 使用 API 获取颜色数据（与 perler_VERSION2 完全一致）
+  const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [gridWidth, setGridWidth] = useState(29); // Width in beads
   const [gridHeight, setGridHeight] = useState(29); // Height in beads
@@ -32,7 +43,17 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced');
   const [colorStats, setColorStats] = useState<Map<number, number>>(new Map());
 
-  const beadColors = MARD_COLORS;
+  // Load bead colors on mount (与 perler_VERSION2 完全一致)
+  useEffect(() => {
+    fetch('/api/beads-colors')
+      .then(res => res.json())
+      .then(data => {
+        setBeadColors(data);
+      })
+      .catch(err => {
+        console.error('Failed to load bead colors:', err);
+      });
+  }, []);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -186,8 +207,8 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
 
       for (let i = 0; i < beadColors.length; i++) {
         const color = beadColors[i];
-        const rgb = hexToRgb(color.hex);
-        const colorLab = rgbToLab(rgb.r, rgb.g, rgb.b);
+        // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
+        const colorLab = rgbToLab(color.r, color.g, color.b);
         const distance = deltaE2000(inputLab, colorLab);
 
         if (distance < minDistance) {
@@ -198,10 +219,10 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
     } else {
       for (let i = 0; i < beadColors.length; i++) {
         const color = beadColors[i];
-        const rgb = hexToRgb(color.hex);
-        const dr = r - rgb.r;
-        const dg = g - rgb.g;
-        const db = b - rgb.b;
+        // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
+        const dr = r - color.r;
+        const dg = g - color.g;
+        const db = b - color.b;
         const distance = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
 
         if (distance < minDistance) {
@@ -250,12 +271,12 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
       const cellHeight = Math.floor(canvas.height / gridHeight);
 
       const pixels: number[][] = [];
-      const gridColors: MardColor[][] = [];
+      const gridColors: BeadColor[][] = [];
 
       // Process each grid cell - direct center pixel sampling
       for (let y = 0; y < gridHeight; y++) {
         const row: number[] = [];
-        const colorRow: MardColor[] = [];
+        const colorRow: BeadColor[] = [];
 
         for (let x = 0; x < gridWidth; x++) {
           const startX = x * cellWidth;
@@ -278,8 +299,16 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
             row.push(colorIndex);
             colorRow.push(beadColors[colorIndex]);
           } else {
+            // 透明像素 - 与 perler_VERSION2 完全一致
             row.push(-1);
-            colorRow.push({ code: '', hex: '#FFFFFF' });
+            colorRow.push({
+              colorName: '',
+              colorCode: '',
+              hex: '#FFFFFF',
+              r: 255,
+              g: 255,
+              b: 255
+            });
           }
         }
 
@@ -308,24 +337,23 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
 
         const topColorSet = new Set(sortedColors);
 
-        // Remap all colors to the top 20
+        // Remap all colors to the top 20 (使用 beadColors 中预先计算的 RGB 值)
         const remappedPixels = pixels.map(row =>
           row.map(colorIndex => {
             if (colorIndex < 0) return -1;
             if (topColorSet.has(colorIndex)) return colorIndex;
 
             const currentColor = beadColors[colorIndex];
-            const currentRgb = hexToRgb(currentColor.hex);
             let minDistance = Infinity;
             let closestIndex = colorIndex;
 
             sortedColors.forEach(topIndex => {
               const topColor = beadColors[topIndex];
-              const topRgb = hexToRgb(topColor.hex);
+              // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
               const distance = Math.sqrt(
-                Math.pow(currentRgb.r - topRgb.r, 2) +
-                Math.pow(currentRgb.g - topRgb.g, 2) +
-                Math.pow(currentRgb.b - topRgb.b, 2)
+                Math.pow(currentColor.r - topColor.r, 2) +
+                Math.pow(currentColor.g - topColor.g, 2) +
+                Math.pow(currentColor.b - topColor.b, 2)
               );
 
               if (distance < minDistance) {
@@ -350,7 +378,14 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
         });
 
         const newGridColors = remappedPixels.map(row =>
-          row.map(colorIndex => colorIndex >= 0 ? beadColors[colorIndex] : { code: '', hex: '#FFFFFF' })
+          row.map(colorIndex => colorIndex >= 0 ? beadColors[colorIndex] : {
+            colorName: '',
+            colorCode: '',
+            hex: '#FFFFFF',
+            r: 255,
+            g: 255,
+            b: 255
+          })
         );
 
         setColorStats(newStats);
@@ -384,7 +419,7 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
     // Calculate legend dimensions
     const colorList = Array.from(colorStats.entries())
       .map(([index, count]) => ({
-        colorCode: beadColors[index]?.code || '',
+        colorCode: beadColors[index]?.colorCode || '',
         hex: beadColors[index]?.hex || '#FFFFFF',
         count
       }))
@@ -484,13 +519,13 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
           const beadColor = pixelGrid.gridColors?.[y][x];
 
           if (colorIndex >= 0 && beadColor) {
-            const rgb = hexToRgb(beadColor.hex);
-            const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+            // 使用 beadColor 中预先计算的 r, g, b 值
+            const luminance = (0.299 * beadColor.r + 0.587 * beadColor.g + 0.114 * beadColor.b) / 255;
             ctx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
             ctx.font = `bold ${Math.max(8, Math.floor(cellSize * 0.35))}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(beadColor.code, offsetX + x * cellSize + cellSize / 2, offsetY + y * cellSize + cellSize / 2);
+            ctx.fillText(beadColor.colorCode, offsetX + x * cellSize + cellSize / 2, offsetY + y * cellSize + cellSize / 2);
           }
         }
       }
@@ -546,7 +581,7 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
 
     const colorList = Array.from(colorStats.entries())
       .map(([index, count]) => ({
-        colorCode: beadColors[index]?.code || '',
+        colorCode: beadColors[index]?.colorCode || '',
         hex: beadColors[index]?.hex || '#FFFFFF',
         count
       }))
@@ -867,7 +902,7 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-base">
-                                {beadColor.code}
+                                {beadColor.colorCode}
                               </span>
                             </div>
                             <div className="text-xs text-gray-500 mt-0.5">
