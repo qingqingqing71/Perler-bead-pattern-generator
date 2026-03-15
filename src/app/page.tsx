@@ -24,7 +24,7 @@ import {
   LogOut,
   ZoomIn,
 } from 'lucide-react';
-import { findClosestMardColor, MardColor, ColorMatchAccuracy, SamplingMode } from '@/lib/mardColors';
+import { findClosestMardColor, MardColor, ColorMatchAccuracy, SamplingMode, MARD_COLORS, rgbToLab, deltaE2000 } from '@/lib/mardColors';
 
 type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
@@ -411,16 +411,27 @@ export default function Home() {
     setError(null);
 
     try {
-      // 生成不带色号的图纸用于显示在"处理结果"窗口
-      const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode);
-      setFinalImage(displayResult.image);
-      
-      // 生成带色号的图纸用于显示在"拼豆图纸"区域
-      const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode);
-      setBeadPatternImage(withCodeResult.image);
-      
-      // 保存配色方案
-      setBeadPatternLegend(displayResult.legend);
+      // 单点采样时使用 perler_VERSION2 的处理方式
+      if (samplingMode === 'single') {
+        // 生成不带色号的图纸用于显示在"处理结果"窗口
+        const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy);
+        setFinalImage(displayResult.image);
+        
+        // 生成带色号的图纸用于显示在"拼豆图纸"区域
+        const withCodeResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy);
+        setBeadPatternImage(withCodeResult.image);
+        
+        setBeadPatternLegend(displayResult.legend);
+      } else {
+        // 多点采样时使用原有的 HD 处理方式
+        const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode);
+        setFinalImage(displayResult.image);
+        
+        const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode);
+        setBeadPatternImage(withCodeResult.image);
+        
+        setBeadPatternLegend(displayResult.legend);
+      }
       
       // 记录使用次数
       recordUsage('bead_pattern', Math.max(effectiveGridCols, effectiveGridRows));
@@ -458,8 +469,14 @@ export default function Home() {
     if (!pixelatedSubject) return;
 
     try {
-      // 生成带色号的高清图纸用于下载
-      const result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode);
+      let result;
+      
+      // 单点采样时使用 perler_VERSION2 的处理方式
+      if (samplingMode === 'single') {
+        result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy);
+      } else {
+        result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode);
+      }
       
       const link = document.createElement('a');
       link.href = result.image;
@@ -2714,6 +2731,372 @@ async function generateBeadPattern(
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = imageUrl;
   });
+}
+
+// Generate bead pattern using perler_VERSION2's exact approach
+// Direct center pixel sampling with index-based color tracking
+async function generateBeadPatternV2(
+  subjectImageUrl: string,
+  gridCols: number,
+  gridRows: number,
+  scale: number = 3,
+  showColorCode: boolean = true,
+  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
+): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      // Step 1: Create square canvas with white background (like perler_VERSION2)
+      const squareSize = Math.max(img.width, img.height);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
+        return;
+      }
+      
+      canvas.width = squareSize;
+      canvas.height = squareSize;
+      
+      // Fill white background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw image centered
+      const offsetX = (squareSize - img.width) / 2;
+      const offsetY = (squareSize - img.height) / 2;
+      ctx.drawImage(img, offsetX, offsetY);
+      
+      // Get full image data
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // Step 2: Calculate grid cell size (like perler_VERSION2)
+      const cellWidth = Math.floor(canvas.width / gridCols);
+      const cellHeight = Math.floor(canvas.height / gridRows);
+      
+      // Step 3: Process each grid cell - direct center pixel sampling
+      // Using color indices (like perler_VERSION2)
+      const pixels: number[][] = []; // color indices, -1 = transparent
+      const beadColors = MARD_COLORS; // Use the MARD colors array
+      
+      // Helper function to find closest bead color (like perler_VERSION2)
+      const findClosestBeadColorIndex = (r: number, g: number, b: number): number => {
+        let minDistance = Infinity;
+        let closestIndex = 0;
+        
+        if (colorMatchAccuracy === 'enhanced') {
+          // Enhanced: CIEDE2000 in Lab color space
+          const inputLab = rgbToLab(r, g, b);
+          
+          for (let i = 0; i < beadColors.length; i++) {
+            const color = beadColors[i];
+            const rgb = hexToRgb(color.hex);
+            const colorLab = rgbToLab(rgb.r, rgb.g, rgb.b);
+            const distance = deltaE2000(inputLab, colorLab);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestIndex = i;
+            }
+          }
+        } else {
+          // Standard: Perceptually weighted RGB distance
+          for (let i = 0; i < beadColors.length; i++) {
+            const color = beadColors[i];
+            const rgb = hexToRgb(color.hex);
+            const dr = r - rgb.r;
+            const dg = g - rgb.g;
+            const db = b - rgb.b;
+            const distance = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestIndex = i;
+            }
+          }
+        }
+        
+        return closestIndex;
+      };
+      
+      // Process each grid cell (exactly like perler_VERSION2)
+      for (let y = 0; y < gridRows; y++) {
+        const row: number[] = [];
+        
+        for (let x = 0; x < gridCols; x++) {
+          // Calculate the pixel range for this grid cell
+          const startX = x * cellWidth;
+          const startY = y * cellHeight;
+          const endX = Math.min((x + 1) * cellWidth, canvas.width);
+          const endY = Math.min((y + 1) * cellHeight, canvas.height);
+
+          // Direct center pixel sampling: Read the exact color at grid center
+          const centerX = Math.floor((startX + endX) / 2);
+          const centerY = Math.floor((startY + endY) / 2);
+
+          // Get the center pixel color directly
+          const i = (centerY * canvas.width + centerX) * 4;
+          const r = imageData.data[i];
+          const g = imageData.data[i + 1];
+          const b = imageData.data[i + 2];
+          const a = imageData.data[i + 3];
+
+          if (a >= 128) {
+            // Center pixel is visible, use its color directly for bead matching
+            const colorIndex = findClosestBeadColorIndex(r, g, b);
+            row.push(colorIndex);
+          } else {
+            // Center pixel is transparent
+            row.push(-1);
+          }
+        }
+        
+        pixels.push(row);
+      }
+
+      // Step 4: Calculate color statistics (like perler_VERSION2)
+      const stats = new Map<number, number>();
+      pixels.forEach(row => {
+        row.forEach(colorIndex => {
+          if (colorIndex >= 0) {
+            const count = stats.get(colorIndex) || 0;
+            stats.set(colorIndex, count + 1);
+          }
+        });
+      });
+
+      // Step 5: Limit to max 20 bead colors (exactly like perler_VERSION2)
+      const MAX_COLORS = 20;
+      if (stats.size > MAX_COLORS) {
+        // Get top 20 most frequently used colors
+        const sortedColors = Array.from(stats.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_COLORS)
+          .map(entry => entry[0]);
+
+        const topColorSet = new Set(sortedColors);
+
+        // Remap all colors to the top 20 (exactly like perler_VERSION2)
+        // Using bead color RGB values for distance calculation
+        for (let y = 0; y < gridRows; y++) {
+          for (let x = 0; x < gridCols; x++) {
+            const colorIndex = pixels[y][x];
+            if (colorIndex < 0) continue;
+            
+            if (topColorSet.has(colorIndex)) continue;
+
+            // Find closest color in top 20 using bead color RGB values
+            const currentColor = beadColors[colorIndex];
+            const currentRgb = hexToRgb(currentColor.hex);
+            let minDistance = Infinity;
+            let closestIndex = colorIndex;
+
+            sortedColors.forEach(topIndex => {
+              const topColor = beadColors[topIndex];
+              const topRgb = hexToRgb(topColor.hex);
+              const distance = Math.sqrt(
+                Math.pow(currentRgb.r - topRgb.r, 2) +
+                Math.pow(currentRgb.g - topRgb.g, 2) +
+                Math.pow(currentRgb.b - topRgb.b, 2)
+              );
+
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = topIndex;
+              }
+            });
+
+            pixels[y][x] = closestIndex;
+          }
+        }
+        
+        // Recalculate stats after remapping
+        stats.clear();
+        pixels.forEach(row => {
+          row.forEach(colorIndex => {
+            if (colorIndex >= 0) {
+              const count = stats.get(colorIndex) || 0;
+              stats.set(colorIndex, count + 1);
+            }
+          });
+        });
+      }
+
+      // Step 6: Build legend from final stats
+      const legend: Array<MardColor & { count: number }> = [];
+      const sortedStats = Array.from(stats.entries()).sort((a, b) => b[1] - a[1]);
+      for (const [colorIndex, count] of sortedStats) {
+        const color = beadColors[colorIndex];
+        legend.push({
+          code: color.code,
+          hex: color.hex,
+          count
+        });
+      }
+
+      // Step 7: Render the bead pattern image
+      const baseCellSize = 20 * scale;
+      const labelPadding = 30 * scale;
+      
+      // Calculate legend dimensions
+      const itemsPerRow = Math.floor((gridCols * baseCellSize) / 100);
+      const legendRows = Math.ceil(legend.length / Math.max(itemsPerRow, 1));
+      const legendHeight = 40 * scale + legendRows * 30 * scale + 30 * scale;
+      
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = gridCols * baseCellSize + labelPadding * 2;
+      outputCanvas.height = gridRows * baseCellSize + labelPadding * 2 + legendHeight;
+      
+      const outputCtx = outputCanvas.getContext('2d');
+      if (!outputCtx) {
+        reject(new Error('无法创建输出画布'));
+        return;
+      }
+      
+      // Fill white background
+      outputCtx.fillStyle = '#FFFFFF';
+      outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      
+      // Draw grid labels on all four sides
+      outputCtx.fillStyle = '#000000';
+      outputCtx.font = `bold ${10 * scale}px Arial`;
+      outputCtx.textAlign = 'center';
+      outputCtx.textBaseline = 'middle';
+      
+      // Top column numbers
+      for (let x = 0; x < gridCols; x++) {
+        outputCtx.fillText(String(x + 1), labelPadding + x * baseCellSize + baseCellSize / 2, labelPadding - 12 * scale);
+      }
+      
+      // Bottom column numbers
+      for (let x = 0; x < gridCols; x++) {
+        outputCtx.fillText(String(x + 1), labelPadding + x * baseCellSize + baseCellSize / 2, labelPadding + gridRows * baseCellSize + 12 * scale);
+      }
+      
+      // Left row numbers
+      outputCtx.textAlign = 'right';
+      for (let y = 0; y < gridRows; y++) {
+        outputCtx.fillText(String(y + 1), labelPadding - 8 * scale, labelPadding + y * baseCellSize + baseCellSize / 2);
+      }
+      
+      // Right row numbers
+      outputCtx.textAlign = 'left';
+      for (let y = 0; y < gridRows; y++) {
+        outputCtx.fillText(String(y + 1), labelPadding + gridCols * baseCellSize + 8 * scale, labelPadding + y * baseCellSize + baseCellSize / 2);
+      }
+      
+      // Draw bead cells
+      outputCtx.textAlign = 'center';
+      outputCtx.textBaseline = 'middle';
+      
+      for (let y = 0; y < gridRows; y++) {
+        for (let x = 0; x < gridCols; x++) {
+          const colorIndex = pixels[y][x];
+          const cellX = labelPadding + x * baseCellSize;
+          const cellY = labelPadding + y * baseCellSize;
+          
+          if (colorIndex >= 0) {
+            const color = beadColors[colorIndex];
+            // Fill cell with bead color
+            outputCtx.fillStyle = color.hex;
+            outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
+            
+            // Draw color code if enabled
+            if (showColorCode) {
+              outputCtx.fillStyle = getContrastColor(color.hex);
+              outputCtx.font = `bold ${8 * scale}px Arial`;
+              outputCtx.fillText(color.code, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
+            }
+          } else {
+            // Transparent cell - draw light gray
+            outputCtx.fillStyle = '#F5F5F5';
+            outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
+          }
+        }
+      }
+      
+      // Draw grid lines (black thin lines)
+      outputCtx.strokeStyle = '#000000';
+      outputCtx.lineWidth = 0.5;
+      
+      for (let x = 0; x <= gridCols; x++) {
+        outputCtx.beginPath();
+        outputCtx.moveTo(labelPadding + x * baseCellSize, labelPadding);
+        outputCtx.lineTo(labelPadding + x * baseCellSize, labelPadding + gridRows * baseCellSize);
+        outputCtx.stroke();
+      }
+      
+      for (let y = 0; y <= gridRows; y++) {
+        outputCtx.beginPath();
+        outputCtx.moveTo(labelPadding, labelPadding + y * baseCellSize);
+        outputCtx.lineTo(labelPadding + gridCols * baseCellSize, labelPadding + y * baseCellSize);
+        outputCtx.stroke();
+      }
+      
+      // Draw legend at bottom
+      const legendY = labelPadding + gridRows * baseCellSize + labelPadding;
+      outputCtx.fillStyle = '#000000';
+      outputCtx.font = `bold ${12 * scale}px Arial`;
+      outputCtx.textAlign = 'left';
+      outputCtx.fillText(`颜色图例 (${legend.length}种，共${legend.reduce((sum, c) => sum + c.count, 0)}颗拼豆)`, labelPadding, legendY);
+      
+      // Draw legend items in rows
+      const itemWidth = 90 * scale;
+      const itemHeight = 25 * scale;
+      const cols = Math.floor((outputCanvas.width - labelPadding * 2) / itemWidth);
+      
+      legend.forEach((item, idx) => {
+        const row = Math.floor(idx / cols);
+        const col = idx % cols;
+        const lx = labelPadding + col * itemWidth;
+        const ly = legendY + 25 * scale + row * itemHeight;
+        
+        // Color swatch
+        outputCtx.fillStyle = item.hex;
+        outputCtx.fillRect(lx, ly, 18 * scale, 18 * scale);
+        outputCtx.strokeStyle = '#000000';
+        outputCtx.lineWidth = 0.5;
+        outputCtx.strokeRect(lx, ly, 18 * scale, 18 * scale);
+        
+        // Color code and count
+        outputCtx.fillStyle = '#000000';
+        outputCtx.font = `${10 * scale}px Arial`;
+        outputCtx.textAlign = 'left';
+        outputCtx.fillText(`${item.code} ×${item.count}`, lx + 22 * scale, ly + 13 * scale);
+      });
+      
+      // Return the result
+      resolve({
+        image: outputCanvas.toDataURL('image/png'),
+        legend
+      });
+    };
+    
+    img.onerror = () => {
+      reject(new Error('图片加载失败'));
+    };
+    
+    img.src = subjectImageUrl;
+  });
+}
+
+// Helper functions for perler_VERSION2 style
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : { r: 255, g: 255, b: 255 };
+}
+
+// Helper function for contrast color
+function getContrastColor(hex: string): string {
+  const rgb = hexToRgb(hex);
+  const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+  return brightness > 128 ? '#000000' : '#FFFFFF';
 }
 
 // Generate high-definition bead pattern for download
