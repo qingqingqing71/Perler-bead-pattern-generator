@@ -801,7 +801,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     // Draw grid lines
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 2;
 
     for (let x = 0; x <= pixelGrid.width; x++) {
       ctx.beginPath();
@@ -1142,6 +1142,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                 <canvas
                   ref={effectCanvasRef}
                   className="w-full h-auto"
+                  style={{ imageRendering: 'crisp-edges' }}
                 />
               ) : (
                 <div className="flex items-center justify-center h-64 text-gray-400">
@@ -1199,6 +1200,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
               <canvas
                 ref={canvasRef}
                 className="w-full h-auto"
+                style={{ imageRendering: 'crisp-edges' }}
               />
             ) : (
               <div className="flex items-center justify-center h-64 text-gray-400">
