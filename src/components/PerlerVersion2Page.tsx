@@ -556,16 +556,26 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 50;
+    const minItemWidth = 100; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
-    const itemWidth = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemsPerRow);
+    
+    // 计算图例所需宽度
+    const legendRequiredWidth = itemsPerRow * minItemWidth + legendPadding * 2;
+    const gridWidth = pixelGrid.width * baseCellSize;
+    
+    // 画布宽度取网格宽度和图例所需宽度的较大值
+    const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendRequiredWidth + labelPadding * 2);
+    const itemWidth = Math.floor((canvasWidth - labelPadding * 2 - legendPadding * 2) / itemsPerRow);
+    
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
     const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
 
-    canvas.width = pixelGrid.width * baseCellSize + labelPadding * 2;
+    canvas.width = canvasWidth;
     canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
 
     const cellSize = baseCellSize;
-    const offsetX = labelPadding;
+    // 居中显示网格
+    const offsetX = (canvasWidth - gridWidth) / 2;
     const offsetY = labelPadding;
     const patternWidth = pixelGrid.width * baseCellSize;
     const patternHeight = pixelGrid.height * baseCellSize;
@@ -674,7 +684,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         const row = Math.floor(index / itemsPerRow);
         const col = index % itemsPerRow;
 
-        const x = offsetX + legendPadding + col * itemWidth;
+        // 图例从画布左边开始绘制，独立于网格位置
+        const x = legendPadding + col * itemWidth;
         const y = legendY + legendPadding + 40 + row * itemHeight;
 
         ctx.fillStyle = item.hex;
@@ -718,16 +729,26 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 50;
+    const minItemWidth = 100; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
-    const itemWidth = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemsPerRow);
+    
+    // 计算图例所需宽度
+    const legendRequiredWidth = itemsPerRow * minItemWidth + legendPadding * 2;
+    const gridWidth = pixelGrid.width * baseCellSize;
+    
+    // 画布宽度取网格宽度和图例所需宽度的较大值
+    const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendRequiredWidth + labelPadding * 2);
+    const itemWidth = Math.floor((canvasWidth - labelPadding * 2 - legendPadding * 2) / itemsPerRow);
+    
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
     const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
 
-    canvas.width = pixelGrid.width * baseCellSize + labelPadding * 2;
+    canvas.width = canvasWidth;
     canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
 
     const cellSize = baseCellSize;
-    const offsetX = labelPadding;
+    // 居中显示网格
+    const offsetX = (canvasWidth - gridWidth) / 2;
     const offsetY = labelPadding;
     const patternWidth = pixelGrid.width * baseCellSize;
     const patternHeight = pixelGrid.height * baseCellSize;
@@ -816,7 +837,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         const row = Math.floor(index / itemsPerRow);
         const col = index % itemsPerRow;
 
-        const x = offsetX + legendPadding + col * itemWidth;
+        // 图例从画布左边开始绘制，独立于网格位置
+        const x = legendPadding + col * itemWidth;
         const y = legendY + legendPadding + 40 + row * itemHeight;
 
         ctx.fillStyle = item.hex;
