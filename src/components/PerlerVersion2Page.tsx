@@ -877,7 +877,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            像素图纸转拼豆图纸
+            自助拼豆图纸生成器
           </h1>
           <p className="text-gray-600">
             上传像素图片，自动转换为拼豆图纸
