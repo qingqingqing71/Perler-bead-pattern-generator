@@ -3211,10 +3211,8 @@ async function generateBeadPatternHD(
         }
       }
       
-      // Step 4: Limit colors based on sampling mode
-      // perler_VERSION2 style: single point sampling uses max 20 colors
-      // Multi-point sampling uses max 30 colors for better color accuracy
-      const MAX_COLORS = samplingMode === 'single' ? 20 : 30;
+      // Step 4: Limit colors (统一使用 20 种颜色，与 perler_VERSION2 一致)
+      const MAX_COLORS = 20;
       let selectedColorIndices: number[];
       
       if (colorStats.size > MAX_COLORS) {
@@ -3225,21 +3223,23 @@ async function generateBeadPatternHD(
         
         selectedColorIndices = sortedEntries.map(([idx, _]) => idx);
         
-        // Remap cells with non-top-30 colors
+        // Remap cells with non-top-20 colors
         const selectedColorSet = new Set(selectedColorIndices);
         
         for (const cell of cellData) {
           if (cell.matchedColorIndex >= 0 && !selectedColorSet.has(cell.matchedColorIndex)) {
-            // Find closest color from selected colors using pre-calculated RGB values
+            // Find closest color from selected colors using beadColors RGB (与 V2 一致)
             let minDist = Infinity;
             let closestIndex = cell.matchedColorIndex;
             
+            // 使用 beadColors 中的原始颜色 RGB（与 V2 一致）
+            const currentColor = beadColors[cell.matchedColorIndex];
             for (const idx of selectedColorIndices) {
-              const color = beadColors[idx];
+              const topColor = beadColors[idx];
               const dist = Math.sqrt(
-                Math.pow(cell.r - color.r, 2) +
-                Math.pow(cell.g - color.g, 2) +
-                Math.pow(cell.b - color.b, 2)
+                Math.pow(currentColor.r - topColor.r, 2) +
+                Math.pow(currentColor.g - topColor.g, 2) +
+                Math.pow(currentColor.b - topColor.b, 2)
               );
               if (dist < minDist) {
                 minDist = dist;
@@ -3277,46 +3277,29 @@ async function generateBeadPatternHD(
         } : { r: 255, g: 255, b: 255 };
       }
       
-      // Step 5: Create output canvas with legend at bottom
+      // Step 5: Create output canvas with legend at bottom (与 V2 一致)
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions (at bottom, 2 rows, 10 items per row)
+      // 先计算 sortedColors（需要在计算 legendHeight 之前）
       const sortedColors = Array.from(colorStats.entries())
-        .filter(([idx, _]) => idx >= 0)  // 排除无效索引
+        .filter(([idx, _]) => idx >= 0)
         .sort((a, b) => b[1].count - a[1].count);
       
       const totalBeads = sortedColors.reduce((sum, [_, data]) => sum + data.count, 0);
       
-      const legendPadding = 40 * scale;
-      const itemGap = 15 * scale;  // 色号项之间的间距
-      const colorBoxSize = 30 * scale;  // 色块大小
-      const itemHeight = 50 * scale;
-      const gridWidth = gridCols * baseCellSize;
-      const gridHeight = gridRows * baseCellSize;
+      // Calculate legend dimensions (与 V2 一致：动态计算)
+      const legendItemHeight = 50 * scale;
+      const legendItemWidth = 200 * scale;
+      const legendPaddingCalc = 40 * scale;
+      const gridWidthPx = gridCols * baseCellSize;
+      const legendCols = Math.floor((gridWidthPx - legendPaddingCalc * 2) / legendItemWidth);
+      const legendRowsCalc = Math.ceil(sortedColors.length / Math.max(legendCols, 1));
+      const legendHeight = legendPaddingCalc * 2 + legendRowsCalc * legendItemHeight + 60 * scale;
       
-      // 固定每排15个色号，共两排（最多30种颜色）
-      const itemsPerRow = 15;
-      const legendRows = 2;
-      
-      // 计算每个色号项的宽度（预估）
-      const estimatedItemWidth = 70 * scale;
-      
-      // 计算图例区域所需宽度：10个色号项 + 间距
-      const legendWidth = itemsPerRow * estimatedItemWidth + (itemsPerRow - 1) * itemGap + legendPadding * 2;
-      
-      // 画布宽度取网格宽度和图例所需宽度的较大值
-      const canvasWidth = Math.max(gridWidth + labelPadding * 2, legendWidth);
-      
-      // 图例高度：标题 + 两排色号
-      const legendHeight = legendPadding + 40 * scale + legendRows * itemHeight + legendPadding;
-      
-      // Canvas size: grid with labels on all 4 sides, plus legend at bottom
-      const canvasHeight = gridHeight + labelPadding * 2 + legendHeight;
-      
-      // 计算图纸部分在画布中的居中偏移
-      const gridAreaWidth = gridWidth + labelPadding * 2;
-      const gridOffsetX = (canvasWidth - gridAreaWidth) / 2;
+      // 画布尺寸（与 V2 一致）
+      const canvasWidth = gridCols * baseCellSize + labelPadding * 2;
+      const canvasHeight = gridRows * baseCellSize + labelPadding * 2 + legendHeight;
       
       const canvas = document.createElement('canvas');
       canvas.width = canvasWidth;
@@ -3333,68 +3316,64 @@ async function generateBeadPatternHD(
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
       
       const cellSize = baseCellSize;
-      // 图纸部分居中偏移
-      const offsetX = gridOffsetX + labelPadding;
+      // 与 V2 一致：不居中，左上角对齐
+      const offsetX = labelPadding;
       const offsetY = labelPadding;
-      const patternWidth = gridWidth;
-      const patternHeight = gridHeight;
+      const patternWidth = gridCols * baseCellSize;
+      const patternHeight = gridRows * baseCellSize;
       
-      // Calculate font size for color codes (same as number labels)
-      const codeFontSize = Math.max(10, Math.floor(cellSize * 0.35));
+      // Calculate font size for color codes (same as V2)
+      const codeFontSize = Math.max(8, Math.floor(cellSize * 0.35));
       
-      // Step 6: Draw grid labels on all four sides (number labels)
+      // Step 6: Draw grid labels on all four sides (与 V2 一致)
       ctx.fillStyle = '#000000';
-      ctx.font = `bold ${Math.max(12, Math.floor(scale * 12))}px Arial`;
+      ctx.font = `bold ${10 * scale}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Column labels at top
+      // Top column numbers
       for (let x = 0; x < gridCols; x++) {
-        ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY - cellSize / 2);
+        ctx.fillText(String(x + 1), labelPadding + x * cellSize + cellSize / 2, labelPadding - 12 * scale);
       }
 
-      // Row labels at left
+      // Bottom column numbers
+      for (let x = 0; x < gridCols; x++) {
+        ctx.fillText(String(x + 1), labelPadding + x * cellSize + cellSize / 2, labelPadding + gridRows * cellSize + 12 * scale);
+      }
+
+      // Left row numbers
       ctx.textAlign = 'right';
       for (let y = 0; y < gridRows; y++) {
-        ctx.fillText(`${y + 1}`, offsetX - 5, offsetY + y * cellSize + cellSize / 2);
+        ctx.fillText(String(y + 1), labelPadding - 8 * scale, labelPadding + y * cellSize + cellSize / 2);
       }
 
-      // Row labels at right
+      // Right row numbers
       ctx.textAlign = 'left';
       for (let y = 0; y < gridRows; y++) {
-        ctx.fillText(`${y + 1}`, offsetX + patternWidth + 5, offsetY + y * cellSize + cellSize / 2);
-      }
-
-      // Column labels at bottom
-      ctx.textAlign = 'center';
-      for (let x = 0; x < gridCols; x++) {
-        ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY + patternHeight + cellSize / 2);
+        ctx.fillText(String(y + 1), labelPadding + gridCols * cellSize + 8 * scale, labelPadding + y * cellSize + cellSize / 2);
       }
       
-      // Step 7: Fill grid cells
-      const whiteColor: BeadColor = { colorName: 'W', colorCode: 'W', hex: '#FFFFFF', r: 255, g: 255, b: 255 };
+      // Step 7: Fill grid cells (与 V2 一致：透明像素使用 clearRect)
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       
       for (const cell of cellData) {
         const x = offsetX + cell.gridX * cellSize;
         const y = offsetY + cell.gridY * cellSize;
         
-        let finalColor: BeadColor;
-        
         if (cell.matchedColor) {
-          finalColor = cell.matchedColor;
+          // Fill cell with bead color
+          ctx.fillStyle = cell.matchedColor.hex;
+          ctx.fillRect(x, y, cellSize, cellSize);
         } else {
-          // Transparent or background - fill white
-          finalColor = whiteColor;
+          // Transparent cell - use clearRect (与 V2 一致)
+          ctx.clearRect(x, y, cellSize, cellSize);
         }
-        
-        // Fill cell with color
-        ctx.fillStyle = finalColor.hex;
-        ctx.fillRect(x, y, cellSize, cellSize);
       }
       
-      // Step 8: Draw grid lines (黑色细线)
+      // Step 8: Draw grid lines (与 V2 一致：lineWidth = 2 * scale)
       ctx.strokeStyle = '#000000';
-      ctx.lineWidth = Math.max(1, Math.floor(scale * 0.5));
+      ctx.lineWidth = 2 * scale;
       
       for (let x = 0; x <= gridCols; x++) {
         ctx.beginPath();
@@ -3410,18 +3389,16 @@ async function generateBeadPatternHD(
         ctx.stroke();
       }
       
-      // Step 9: Draw color codes (only if showColorCode is true)
+      // Step 9: Draw color codes (与 V2 一致)
       if (showColorCode) {
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
         ctx.font = `bold ${codeFontSize}px Arial`;
         
         for (const cell of cellData) {
           if (!cell.matchedColor) continue;
           
           // 使用预先计算的 RGB 值计算亮度
-          const brightness = (cell.matchedColor.r * 299 + cell.matchedColor.g * 587 + cell.matchedColor.b * 114) / 1000;
-          ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
+          const luminance = (cell.matchedColor.r * 299 + cell.matchedColor.g * 587 + cell.matchedColor.b * 114) / 255;
+          ctx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
           
           const x = offsetX + cell.gridX * cellSize + cellSize / 2;
           const y = offsetY + cell.gridY * cellSize + cellSize / 2;
@@ -3429,68 +3406,47 @@ async function generateBeadPatternHD(
         }
       }
       
-      // Step 10: Draw legend area at bottom
-      if (sortedColors.length > 0) {
-        const legendY = offsetY + patternHeight + labelPadding;
+      // Step 10: Draw legend at bottom (与 V2 一致)
+      const legendY = labelPadding + gridRows * cellSize + labelPadding;
+      
+      // Draw legend area background
+      ctx.fillStyle = '#F8F9FA';
+      ctx.fillRect(0, legendY, canvasWidth, canvasHeight - legendY);
+      
+      // Draw legend title (centered)
+      ctx.fillStyle = '#000000';
+      ctx.font = `bold ${20 * scale}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`拼豆色号图例 (${sortedColors.length}种色号, 共${totalBeads}个拼豆)`, canvasWidth / 2, legendY + 35 * scale);
+      
+      // Draw legend items (与 V2 一致：色块 + 右侧色号 + 右侧数量)
+      const legendPadding = 40 * scale;
+      const cols = Math.floor((gridWidthPx - legendPadding * 2) / legendItemWidth);
+      
+      sortedColors.forEach(([idx, data], index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        const lx = labelPadding + legendPadding + col * legendItemWidth;
+        const ly = legendY + legendPadding + 40 * scale + row * legendItemHeight;
         
-        // Draw legend area background
-        ctx.fillStyle = '#F8F9FA';
-        ctx.fillRect(0, legendY, canvasWidth, legendHeight);
+        // Color swatch (30x30)
+        ctx.fillStyle = data.color.hex;
+        ctx.fillRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
+        ctx.strokeStyle = '#CCCCCC';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
         
-        // Draw legend title (centered)
+        // Color code (bold, 色块右侧)
         ctx.fillStyle = '#000000';
-        ctx.font = `bold ${Math.floor(scale * 20)}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.fillText(
-          `拼豆色号图例 (${sortedColors.length}种色号, 共${totalBeads}个拼豆)`,
-          canvasWidth / 2,
-          legendY + 35 * scale
-        );
+        ctx.font = `bold ${14 * scale}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.fillText(data.color.colorCode, lx + 40 * scale, ly);
         
-        // Draw legend items - 两排，每排10个
-        ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
-        
-        // 计算每个色号项的实际宽度（色块 + 色号 + 数量）
-        const codeTextWidth = ctx.measureText('W1').width;
-        const countTextWidth = ctx.measureText('999').width;
-        const actualItemWidth = colorBoxSize + 8 * scale + countTextWidth + itemGap;
-        
-        // 计算图例起始位置（居中）
-        const totalLegendWidth = itemsPerRow * actualItemWidth - itemGap;
-        const legendStartX = (canvasWidth - totalLegendWidth) / 2;
-        
-        sortedColors.forEach(([idx, data], index) => {
-          // 固定每排10个，最多两排
-          const row = Math.floor(index / itemsPerRow);
-          const col = index % itemsPerRow;
-          
-          // 如果超过两排，跳过
-          if (row >= 2) return;
-          
-          const itemStartX = legendStartX + col * actualItemWidth;
-          const y = legendY + legendPadding + 40 * scale + row * itemHeight;
-          
-          // Draw color swatch
-          ctx.fillStyle = data.color.hex;
-          ctx.fillRect(itemStartX, y - 12 * scale, colorBoxSize, colorBoxSize);
-          ctx.strokeStyle = '#CCCCCC';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(itemStartX, y - 12 * scale, colorBoxSize, colorBoxSize);
-          
-          // Draw color code on the swatch (使用预先计算的 RGB 值计算亮度)
-          const textColor = (data.color.r * 299 + data.color.g * 587 + data.color.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
-          ctx.fillStyle = textColor;
-          ctx.textAlign = 'center';
-          ctx.font = `bold ${Math.floor(scale * 11)}px Arial`;
-          ctx.fillText(data.color.colorCode, itemStartX + colorBoxSize / 2, y);
-          
-          // Draw count on the right
-          ctx.fillStyle = '#000000';
-          ctx.textAlign = 'left';
-          ctx.font = `bold ${Math.floor(scale * 12)}px Arial`;
-          ctx.fillText(`${data.count}`, itemStartX + colorBoxSize + 5 * scale, y);
-        });
-      }
+        // Count (right aligned, 最右侧)
+        ctx.font = `bold ${14 * scale}px Arial`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${data.count}个`, lx + legendItemWidth - 10 * scale, ly + 8 * scale);
+      });
 
       // Build legend with counts
       const legend = sortedColors.map(([idx, data]) => ({
