@@ -981,63 +981,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
                 </div>
               </Card>
             )}
-
-            {pixelGrid && colorStats.size > 0 && (
-              <Card className="p-6">
-                <h2 className="text-xl font-semibold mb-4">拼豆色号图例</h2>
-
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {Array.from(colorStats.entries())
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([colorIndex, count]) => {
-                      const beadColor = beadColors[colorIndex];
-                      if (!beadColor) return null;
-
-                      return (
-                        <div
-                          key={colorIndex}
-                          className="flex items-center gap-3 p-2 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
-                        >
-                          <div
-                            className="w-10 h-10 rounded-lg border-2 border-gray-300 flex-shrink-0"
-                            style={{ backgroundColor: beadColor.hex }}
-                          />
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-base">
-                                {beadColor.colorCode}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              {beadColor.hex}
-                            </div>
-                          </div>
-
-                          <div className="flex-shrink-0">
-                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
-                              {count}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-
-                <div className="mt-4 pt-4 border-t">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">
-                      总计使用色号: <span className="font-semibold">{colorStats.size}</span>
-                    </span>
-                    <span className="text-gray-600">
-                      拼豆总数: <span className="font-semibold">
-                        {Array.from(colorStats.values()).reduce((sum, count) => sum + count, 0)}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              </Card>
-            )}
           </div>
         </div>
       </div>
