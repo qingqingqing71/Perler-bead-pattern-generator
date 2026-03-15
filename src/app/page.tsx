@@ -549,42 +549,7 @@ export default function Home() {
   // 所有采样模式都使用 perler_VERSION2 风格的页面
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      {/* 采样模式切换器 */}
-      <div className="bg-white dark:bg-slate-800 border-b py-3 px-4 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Grid3X3 className="w-5 h-5 text-blue-600" />
-            <span className="font-medium text-slate-700 dark:text-slate-300">采样方式：</span>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant={samplingMode === 'single' ? 'default' : 'outline'}
-              size="sm"
-              className={samplingMode === 'single' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-              onClick={() => setSamplingMode('single')}
-            >
-              单点
-            </Button>
-            <Button
-              variant={samplingMode === 'multi5' ? 'default' : 'outline'}
-              size="sm"
-              className={samplingMode === 'multi5' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-              onClick={() => setSamplingMode('multi5')}
-            >
-              5点
-            </Button>
-            <Button
-              variant={samplingMode === 'multi9' ? 'default' : 'outline'}
-              size="sm"
-              className={samplingMode === 'multi9' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-              onClick={() => setSamplingMode('multi9')}
-            >
-              9点
-            </Button>
-          </div>
-        </div>
-      </div>
-      <PerlerVersion2Page samplingMode={samplingMode} />
+      <PerlerVersion2Page />
     </div>
   );
 }

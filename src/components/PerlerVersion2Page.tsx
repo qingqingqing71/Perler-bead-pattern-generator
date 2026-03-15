@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
-import { Upload, Download, Grid3x3, Type } from 'lucide-react';
+import { Upload, Download, Grid3x3, Type, Grid3X3 } from 'lucide-react';
 
 // 与 perler_VERSION2 完全一致的颜色数据结构
 interface BeadColor {
@@ -31,7 +31,18 @@ interface PerlerVersion2PageProps {
   onSamplingModeChange?: (mode: 'single' | 'multi5' | 'multi9') => void;  // 切换采样模式的回调
 }
 
-export default function PerlerVersion2Page({ onBack, samplingMode = 'single', onSamplingModeChange }: PerlerVersion2PageProps) {
+export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingMode = 'single', onSamplingModeChange }: PerlerVersion2PageProps) {
+  // 内部管理采样模式状态（如果没有传入回调函数）
+  const [internalSamplingMode, setInternalSamplingMode] = useState<'single' | 'multi5' | 'multi9'>('single');
+  const samplingMode = onSamplingModeChange ? propSamplingMode : internalSamplingMode;
+  const handleSamplingModeChange = (mode: 'single' | 'multi5' | 'multi9') => {
+    if (onSamplingModeChange) {
+      onSamplingModeChange(mode);
+    } else {
+      setInternalSamplingMode(mode);
+    }
+  };
+
   // 使用 API 获取颜色数据（与 perler_VERSION2 完全一致）
   const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -983,7 +994,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
                     className="text-purple-600"
                   />
                   <span className="text-sm">
-                    <span className="font-medium">专业模式</span> - Lab色彩空间 + CIEDE2000算法，最准确
+                    <span className="font-medium">专业模式</span> - Lab色彩空间 + CIEDE2000算法
                   </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -1000,9 +1011,38 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
                   </span>
                 </label>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                专业模式使用工业标准的CIEDE2000算法。
-              </p>
+              <div className="mt-4">
+                <Label>采样方式</Label>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    variant={samplingMode === 'single' ? 'default' : 'outline'}
+                    size="sm"
+                    className={samplingMode === 'single' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => handleSamplingModeChange('single')}
+                  >
+                    单点
+                  </Button>
+                  <Button
+                    variant={samplingMode === 'multi5' ? 'default' : 'outline'}
+                    size="sm"
+                    className={samplingMode === 'multi5' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => handleSamplingModeChange('multi5')}
+                  >
+                    5点
+                  </Button>
+                  <Button
+                    variant={samplingMode === 'multi9' ? 'default' : 'outline'}
+                    size="sm"
+                    className={samplingMode === 'multi9' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => handleSamplingModeChange('multi9')}
+                  >
+                    9点
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  单点取中心颜色，多点取平均值
+                </p>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3">
