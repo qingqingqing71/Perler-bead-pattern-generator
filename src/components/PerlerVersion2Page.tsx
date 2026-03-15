@@ -56,6 +56,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   const [showColorCodes, setShowColorCodes] = useState(true);
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced');
   const [colorStats, setColorStats] = useState<Map<number, number>>(new Map());
+  const [upscaleFactor, setUpscaleFactor] = useState<1 | 1.2>(1); // 放大倍数
 
   // Load bead colors on mount (与 perler_VERSION2 完全一致)
   useEffect(() => {
@@ -256,8 +257,12 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const img = new Image();
     img.onload = () => {
+      // 根据放大倍数计算最终尺寸
+      const finalWidth = Math.round(img.width * upscaleFactor);
+      const finalHeight = Math.round(img.height * upscaleFactor);
+
       // Step 1: Create square canvas
-      const squareSize = Math.max(img.width, img.height);
+      const squareSize = Math.max(finalWidth, finalHeight);
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -272,10 +277,14 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw image centered
-      const offsetX = (squareSize - img.width) / 2;
-      const offsetY = (squareSize - img.height) / 2;
-      ctx.drawImage(img, offsetX, offsetY);
+      // Draw image centered (with upscale if needed)
+      const offsetX = (squareSize - finalWidth) / 2;
+      const offsetY = (squareSize - finalHeight) / 2;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, offsetX, offsetY, finalWidth, finalHeight);
+
+
 
       // Get image data
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1041,6 +1050,30 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   单点取中心颜色，多点取平均值
+                </p>
+              </div>
+              <div className="mt-4">
+                <Label>图片大小</Label>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    variant={upscaleFactor === 1 ? 'default' : 'outline'}
+                    size="sm"
+                    className={upscaleFactor === 1 ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => setUpscaleFactor(1)}
+                  >
+                    1倍（原图）
+                  </Button>
+                  <Button
+                    variant={upscaleFactor === 1.2 ? 'default' : 'outline'}
+                    size="sm"
+                    className={upscaleFactor === 1.2 ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => setUpscaleFactor(1.2)}
+                  >
+                    1.2倍（大图）
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  1.2倍将图片放大后处理，细节更丰富
                 </p>
               </div>
             </div>
