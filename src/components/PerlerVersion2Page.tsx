@@ -27,9 +27,11 @@ interface PixelGrid {
 
 interface PerlerVersion2PageProps {
   onBack?: () => void;
+  samplingMode?: 'single' | 'multi5';  // 采样模式
+  onSamplingModeChange?: (mode: 'single' | 'multi5') => void;  // 切换采样模式的回调
 }
 
-export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) {
+export default function PerlerVersion2Page({ onBack, samplingMode = 'single', onSamplingModeChange }: PerlerVersion2PageProps) {
   // 使用 API 获取颜色数据（与 perler_VERSION2 完全一致）
   const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -273,7 +275,18 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
       const pixels: number[][] = [];
       const gridColors: BeadColor[][] = [];
 
-      // Process each grid cell - direct center pixel sampling
+      // Helper function to get pixel color at (x, y)
+      const getPixelColor = (x: number, y: number) => {
+        const idx = (y * canvas.width + x) * 4;
+        return {
+          r: imageData.data[idx],
+          g: imageData.data[idx + 1],
+          b: imageData.data[idx + 2],
+          a: imageData.data[idx + 3]
+        };
+      };
+
+      // Process each grid cell - 根据采样模式选择采样方式
       for (let y = 0; y < gridHeight; y++) {
         const row: number[] = [];
         const colorRow: BeadColor[] = [];
@@ -284,15 +297,42 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
           const endX = Math.min((x + 1) * cellWidth, canvas.width);
           const endY = Math.min((y + 1) * cellHeight, canvas.height);
 
-          // Direct center pixel sampling
+          // Calculate center pixel position
           const centerX = Math.floor((startX + endX) / 2);
           const centerY = Math.floor((startY + endY) / 2);
 
-          const i = (centerY * canvas.width + centerX) * 4;
-          const r = imageData.data[i];
-          const g = imageData.data[i + 1];
-          const b = imageData.data[i + 2];
-          const a = imageData.data[i + 3];
+          let r: number, g: number, b: number, a: number;
+
+          if (samplingMode === 'single') {
+            // 单点采样：只取中心点
+            const color = getPixelColor(centerX, centerY);
+            r = color.r;
+            g = color.g;
+            b = color.b;
+            a = color.a;
+          } else {
+            // 5点采样：中心 + 四角
+            const points = [
+              { x: centerX, y: centerY },                              // 中心
+              { x: startX, y: startY },                                // 左上角
+              { x: endX - 1, y: startY },                              // 右上角
+              { x: startX, y: endY - 1 },                              // 左下角
+              { x: endX - 1, y: endY - 1 }                             // 右下角
+            ];
+
+            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            points.forEach(p => {
+              const color = getPixelColor(p.x, p.y);
+              sumR += color.r;
+              sumG += color.g;
+              sumB += color.b;
+              sumA += color.a;
+            });
+            r = Math.round(sumR / 5);
+            g = Math.round(sumG / 5);
+            b = Math.round(sumB / 5);
+            a = Math.round(sumA / 5);
+          }
 
           if (a >= 128) {
             const colorIndex = findClosestBeadColor(r, g, b);

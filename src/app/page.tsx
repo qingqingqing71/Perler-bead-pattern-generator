@@ -547,8 +547,8 @@ export default function Home() {
 
   const canUpload = step === 'idle' || step === 'done';
 
-  // 当选择单点采样时，显示 perler_VERSION2 风格的页面
-  if (samplingMode === 'single') {
+  // 当选择单点或5点采样时，显示 perler_VERSION2 风格的页面
+  if (samplingMode === 'single' || samplingMode === 'multi5') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
         {/* 采样模式切换器 */}
@@ -560,15 +560,17 @@ export default function Home() {
             </div>
             <div className="flex gap-2">
               <Button
-                variant="default"
+                variant={samplingMode === 'single' ? 'default' : 'outline'}
                 size="sm"
-                className="bg-blue-600 hover:bg-blue-700"
+                className={samplingMode === 'single' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                onClick={() => setSamplingMode('single')}
               >
                 单点
               </Button>
               <Button
-                variant="outline"
+                variant={samplingMode === 'multi5' ? 'default' : 'outline'}
                 size="sm"
+                className={samplingMode === 'multi5' ? 'bg-blue-600 hover:bg-blue-700' : ''}
                 onClick={() => setSamplingMode('multi5')}
               >
                 5点
@@ -583,7 +585,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <PerlerVersion2Page />
+        <PerlerVersion2Page samplingMode={samplingMode} />
       </div>
     );
   }
@@ -839,7 +841,7 @@ export default function Home() {
               {/* Divider */}
               <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
               
-              {/* Sampling Mode Selector - 在多点模式下只显示5点和9点选项 */}
+              {/* Sampling Mode Selector - 在9点模式下只显示9点为选中状态 */}
               <div className="flex items-center gap-2">
                 <Grid3X3 className="w-5 h-5 text-blue-600" />
                 <span className="font-medium text-slate-700 dark:text-slate-300">采样方式：</span>
@@ -853,19 +855,17 @@ export default function Home() {
                     单点
                   </Button>
                   <Button
-                    variant={samplingMode === 'multi5' ? 'default' : 'outline'}
+                    variant="outline"
                     size="sm"
                     onClick={() => setSamplingMode('multi5')}
-                    className={samplingMode === 'multi5' ? 'bg-blue-600 hover:bg-blue-700' : ''}
                     title="中心+四角共5个点平均"
                   >
                     5点
                   </Button>
                   <Button
-                    variant={samplingMode === 'multi9' ? 'default' : 'outline'}
+                    variant="default"
                     size="sm"
-                    onClick={() => setSamplingMode('multi9')}
-                    className={samplingMode === 'multi9' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    className="bg-blue-600 hover:bg-blue-700"
                     title="3×3网格共9个点平均"
                   >
                     9点
