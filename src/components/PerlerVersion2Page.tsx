@@ -257,12 +257,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const img = new Image();
     img.onload = () => {
-      // 根据放大倍数计算最终尺寸
-      const finalWidth = Math.round(img.width * upscaleFactor);
-      const finalHeight = Math.round(img.height * upscaleFactor);
-
-      // Step 1: Create square canvas
-      const squareSize = Math.max(finalWidth, finalHeight);
+      // Step 1: Create square canvas (based on original image size)
+      const squareSize = Math.max(img.width, img.height);
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -277,12 +273,18 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw image centered (with upscale if needed)
-      const offsetX = (squareSize - finalWidth) / 2;
-      const offsetY = (squareSize - finalHeight) / 2;
+      // Calculate image size with upscale factor
+      // 1.2倍：在相同网格画幅内，图片放大1.2倍（边缘会被裁剪）
+      const drawWidth = img.width * upscaleFactor;
+      const drawHeight = img.height * upscaleFactor;
+      
+      // Draw image centered
+      const offsetX = (squareSize - drawWidth) / 2;
+      const offsetY = (squareSize - drawHeight) / 2;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, offsetX, offsetY, finalWidth, finalHeight);
+      ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
 
 
 
