@@ -3158,28 +3158,12 @@ async function generateBeadPatternHD(
             b = color.b;
             a = color.a;
           } else if (samplingMode === 'multi5') {
-            // 5点采样：中心 + 四角（偏内）
-            const offset = Math.min(cellW, cellH) * 0.25;
-            const points = [
-              { x: centerX, y: centerY },  // 中心
-              { x: Math.floor(startX + offset), y: Math.floor(startY + offset) },  // 左上
-              { x: Math.floor(endX - offset - 1), y: Math.floor(startY + offset) },  // 右上
-              { x: Math.floor(startX + offset), y: Math.floor(endY - offset - 1) },  // 左下
-              { x: Math.floor(endX - offset - 1), y: Math.floor(endY - offset - 1) },  // 右下
-            ];
-            
-            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-            for (const p of points) {
-              const color = getPixelColor(p.x, p.y);
-              sumR += color.r;
-              sumG += color.g;
-              sumB += color.b;
-              sumA += color.a;
-            }
-            r = Math.round(sumR / 5);
-            g = Math.round(sumG / 5);
-            b = Math.round(sumB / 5);
-            a = Math.round(sumA / 5);
+            // 5点采样：暂时改为单点采样方式（只取中心点）
+            const color = getPixelColor(centerX, centerY);
+            r = color.r;
+            g = color.g;
+            b = color.b;
+            a = color.a;
           } else {
             // 9点采样：3×3网格
             const stepX = cellW / 4;
