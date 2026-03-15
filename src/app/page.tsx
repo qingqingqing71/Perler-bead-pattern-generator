@@ -25,6 +25,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { findClosestMardColor, MardColor, ColorMatchAccuracy, SamplingMode, MARD_COLORS, rgbToLab, deltaE2000 } from '@/lib/mardColors';
+import PerlerVersion2Page from '@/components/PerlerVersion2Page';
 
 type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
@@ -521,6 +522,48 @@ export default function Home() {
 
   const canUpload = step === 'idle' || step === 'done';
 
+  // 当选择单点采样时，显示 perler_VERSION2 风格的页面
+  if (samplingMode === 'single') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+        {/* 采样模式切换器 */}
+        <div className="bg-white dark:bg-slate-800 border-b py-3 px-4 sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Grid3X3 className="w-5 h-5 text-blue-600" />
+              <span className="font-medium text-slate-700 dark:text-slate-300">采样方式：</span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                单点
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSamplingMode('multi5')}
+              >
+                5点
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSamplingMode('multi9')}
+              >
+                9点
+              </Button>
+            </div>
+          </div>
+        </div>
+        <PerlerVersion2Page />
+      </div>
+    );
+  }
+
+  // 多点采样模式：显示原有的 UI
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -771,17 +814,16 @@ export default function Home() {
               {/* Divider */}
               <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
               
-              {/* Sampling Mode Selector */}
+              {/* Sampling Mode Selector - 在多点模式下只显示5点和9点选项 */}
               <div className="flex items-center gap-2">
                 <Grid3X3 className="w-5 h-5 text-blue-600" />
                 <span className="font-medium text-slate-700 dark:text-slate-300">采样方式：</span>
                 <div className="flex gap-2">
                   <Button
-                    variant={samplingMode === 'single' ? 'default' : 'outline'}
+                    variant="outline"
                     size="sm"
                     onClick={() => setSamplingMode('single')}
-                    className={samplingMode === 'single' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-                    title="只取中心点一个像素"
+                    title="切换到单点采样模式（perler_VERSION2风格）"
                   >
                     单点
                   </Button>
