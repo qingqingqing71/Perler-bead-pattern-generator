@@ -2940,10 +2940,13 @@ async function generateBeadPatternV2(
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions
-      const itemsPerRow = Math.floor((gridCols * baseCellSize) / 100);
-      const legendRows = Math.ceil(legend.length / Math.max(itemsPerRow, 1));
-      const legendHeight = 40 * scale + legendRows * 30 * scale + 30 * scale;
+      // Calculate legend dimensions (like perler_VERSION2)
+      const legendItemHeight = 50 * scale;
+      const legendItemWidth = 200 * scale;
+      const legendPaddingCalc = 40 * scale;
+      const legendCols = Math.floor((gridCols * baseCellSize + labelPadding * 2 - legendPaddingCalc * 2) / legendItemWidth);
+      const legendRows = Math.ceil(legend.length / Math.max(legendCols, 1));
+      const legendHeight = legendPaddingCalc * 2 + legendRows * legendItemHeight;
       
       const outputCanvas = document.createElement('canvas');
       outputCanvas.width = gridCols * baseCellSize + labelPadding * 2;
@@ -2987,7 +2990,7 @@ async function generateBeadPatternV2(
         outputCtx.fillText(String(y + 1), labelPadding + gridCols * baseCellSize + 8 * scale, labelPadding + y * baseCellSize + baseCellSize / 2);
       }
       
-      // Draw bead cells
+      // Draw bead cells (exactly like perler_VERSION2)
       outputCtx.textAlign = 'center';
       outputCtx.textBaseline = 'middle';
       
@@ -2999,27 +3002,29 @@ async function generateBeadPatternV2(
           
           if (colorIndex >= 0) {
             const color = beadColors[colorIndex];
+            const colorRgb = hexToRgb(color.hex);
             // Fill cell with bead color
             outputCtx.fillStyle = color.hex;
             outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
             
-            // Draw color code if enabled
+            // Draw color code if enabled (exactly like perler_VERSION2)
             if (showColorCode) {
-              outputCtx.fillStyle = getContrastColor(color.hex);
-              outputCtx.font = `bold ${8 * scale}px Arial`;
+              // Use contrast color based on RGB values
+              const luminance = (0.299 * colorRgb.r + 0.587 * colorRgb.g + 0.114 * colorRgb.b) / 255;
+              outputCtx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
+              outputCtx.font = `bold ${Math.max(8, Math.floor(baseCellSize * 0.35))}px Arial`;
               outputCtx.fillText(color.code, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
             }
           } else {
-            // Transparent cell - draw light gray
-            outputCtx.fillStyle = '#F5F5F5';
-            outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
+            // Transparent cell - use clearRect like perler_VERSION2
+            outputCtx.clearRect(cellX, cellY, baseCellSize, baseCellSize);
           }
         }
       }
       
-      // Draw grid lines (black thin lines)
+      // Draw grid lines (exactly like perler_VERSION2: lineWidth = 2)
       outputCtx.strokeStyle = '#000000';
-      outputCtx.lineWidth = 0.5;
+      outputCtx.lineWidth = 2 * scale;
       
       for (let x = 0; x <= gridCols; x++) {
         outputCtx.beginPath();
@@ -3035,36 +3040,49 @@ async function generateBeadPatternV2(
         outputCtx.stroke();
       }
       
-      // Draw legend at bottom
+      // Draw legend at bottom (exactly like perler_VERSION2)
       const legendY = labelPadding + gridRows * baseCellSize + labelPadding;
-      outputCtx.fillStyle = '#000000';
-      outputCtx.font = `bold ${12 * scale}px Arial`;
-      outputCtx.textAlign = 'left';
-      outputCtx.fillText(`颜色图例 (${legend.length}种，共${legend.reduce((sum, c) => sum + c.count, 0)}颗拼豆)`, labelPadding, legendY);
       
-      // Draw legend items in rows
-      const itemWidth = 90 * scale;
-      const itemHeight = 25 * scale;
-      const cols = Math.floor((outputCanvas.width - labelPadding * 2) / itemWidth);
+      // Draw legend area background (like perler_VERSION2)
+      outputCtx.fillStyle = '#F8F9FA';
+      outputCtx.fillRect(0, legendY, outputCanvas.width, outputCanvas.height - legendY);
+      
+      // Draw legend title (centered, like perler_VERSION2)
+      outputCtx.fillStyle = '#000000';
+      outputCtx.font = `bold ${20 * scale}px Arial`;
+      outputCtx.textAlign = 'center';
+      const totalBeads = legend.reduce((sum, c) => sum + c.count, 0);
+      outputCtx.fillText(`拼豆色号图例 (${legend.length}种色号, 共${totalBeads}个拼豆)`, outputCanvas.width / 2, legendY + 35 * scale);
+      
+      // Draw legend items in rows (like perler_VERSION2)
+      const itemWidth = 200 * scale;
+      const itemHeight = 50 * scale;
+      const legendPadding = 40 * scale;
+      const cols = Math.floor((outputCanvas.width - legendPadding * 2) / itemWidth);
       
       legend.forEach((item, idx) => {
         const row = Math.floor(idx / cols);
         const col = idx % cols;
-        const lx = labelPadding + col * itemWidth;
-        const ly = legendY + 25 * scale + row * itemHeight;
+        const lx = legendPadding + col * itemWidth;
+        const ly = legendY + legendPadding + 40 * scale + row * itemHeight;
         
-        // Color swatch
+        // Color swatch (30x30 like perler_VERSION2)
         outputCtx.fillStyle = item.hex;
-        outputCtx.fillRect(lx, ly, 18 * scale, 18 * scale);
-        outputCtx.strokeStyle = '#000000';
-        outputCtx.lineWidth = 0.5;
-        outputCtx.strokeRect(lx, ly, 18 * scale, 18 * scale);
+        outputCtx.fillRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
+        outputCtx.strokeStyle = '#CCCCCC';
+        outputCtx.lineWidth = 1;
+        outputCtx.strokeRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
         
-        // Color code and count
+        // Color code (bold, like perler_VERSION2)
         outputCtx.fillStyle = '#000000';
-        outputCtx.font = `${10 * scale}px Arial`;
+        outputCtx.font = `bold ${14 * scale}px Arial`;
         outputCtx.textAlign = 'left';
-        outputCtx.fillText(`${item.code} ×${item.count}`, lx + 22 * scale, ly + 13 * scale);
+        outputCtx.fillText(item.code, lx + 40 * scale, ly);
+        
+        // Count (right aligned, like perler_VERSION2)
+        outputCtx.font = `bold ${14 * scale}px Arial`;
+        outputCtx.textAlign = 'right';
+        outputCtx.fillText(`${item.count}个`, lx + itemWidth - 10 * scale, ly + 8 * scale);
       });
       
       // Return the result
