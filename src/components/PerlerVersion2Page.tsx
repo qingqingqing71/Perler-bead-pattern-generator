@@ -236,7 +236,7 @@ export default function PerlerVersion2Page({ onBack }: PerlerVersion2PageProps) 
   };
 
   const detectGridAndProcess = async () => {
-    if (!uploadedImage) return;
+    if (!uploadedImage || beadColors.length === 0) return;
 
     setIsProcessing(true);
 
