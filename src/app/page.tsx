@@ -3020,73 +3020,59 @@ function getContrastColor(hex: string): string {
 }
 
 // Generate high-definition bead pattern for download
-// Generate bead pattern using direct center pixel sampling (simplified approach)
-// Similar to perler_VERSION2: read center pixel only, no flood fill
+// 完全使用 V2 的处理逻辑，只是支持不同的采样模式
 async function generateBeadPatternHD(
   subjectImageUrl: string,
-  gridCols: number,  // 网格列数（宽度）
-  gridRows: number,  // 网格行数（高度）
+  gridCols: number,
+  gridRows: number,
   scale: number = 3,
   showColorCode: boolean = true,
   colorMatchAccuracy: 'standard' | 'enhanced' = 'enhanced',
-  samplingMode: SamplingMode = 'multi5',  // 默认使用5点采样
-  beadColors: BeadColor[]  // 使用 beads-colors API 的颜色数据
+  samplingMode: SamplingMode = 'multi5',
+  beadColors: BeadColor[]
 ): Promise<{ image: string; legend: Array<{ code: string; hex: string; count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
     img.onload = () => {
-      // Step 1: Create canvas and get image data
-      const srcCanvas = document.createElement('canvas');
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) {
-        reject(new Error('无法创建源画布'));
+      // Step 1: Create square canvas with white background (与 V2 完全一致)
+      const squareSize = Math.max(img.width, img.height);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建画布'));
         return;
       }
       
-      // Make square canvas (like perler_VERSION2)
-      const squareSize = Math.max(img.width, img.height);
-      srcCanvas.width = squareSize;
-      srcCanvas.height = squareSize;
+      canvas.width = squareSize;
+      canvas.height = squareSize;
       
       // Fill white background
-      srcCtx.fillStyle = '#FFFFFF';
-      srcCtx.fillRect(0, 0, squareSize, squareSize);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       // Draw image centered
-      const srcOffsetX = (squareSize - img.width) / 2;
-      const srcOffsetY = (squareSize - img.height) / 2;
-      srcCtx.drawImage(img, srcOffsetX, srcOffsetY);
+      const offsetX = (squareSize - img.width) / 2;
+      const offsetY = (squareSize - img.height) / 2;
+      ctx.drawImage(img, offsetX, offsetY);
       
-      const imageData = srcCtx.getImageData(0, 0, squareSize, squareSize);
+      // Get full image data
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       
-      // Step 2: Calculate cell size
-      const cellWidth = Math.floor(squareSize / gridCols);
-      const cellHeight = Math.floor(squareSize / gridRows);
+      // Step 2: Calculate grid cell size (与 V2 完全一致)
+      const cellWidth = Math.floor(canvas.width / gridCols);
+      const cellHeight = Math.floor(canvas.height / gridRows);
       
-      // Step 3: Process each grid cell - direct center pixel sampling
-      const cellData: Array<{
-        gridX: number;
-        gridY: number;
-        r: number;
-        g: number;
-        b: number;
-        a: number;
-        matchedColor: BeadColor | null;
-        matchedColorIndex: number;
-      }> = [];
+      // Step 3: Process each grid cell (与 V2 完全一致的数据结构)
+      const pixels: number[][] = []; // color indices, -1 = transparent
       
-      const colorStats = new Map<number, { color: BeadColor; count: number }>();
-      
-      // Helper function to find closest bead color using pre-calculated RGB values
-      const findClosestBeadColor = (r: number, g: number, b: number): { color: BeadColor; index: number } => {
+      // Helper function to find closest bead color (与 V2 完全一致)
+      const findClosestBeadColorIndex = (r: number, g: number, b: number): number => {
         let minDistance = Infinity;
-        let closestColor = beadColors[0];
         let closestIndex = 0;
         
         if (colorMatchAccuracy === 'enhanced') {
-          // Enhanced: CIEDE2000 in Lab color space
           const inputLab = rgbToLab(r, g, b);
           
           for (let i = 0; i < beadColors.length; i++) {
@@ -3096,12 +3082,10 @@ async function generateBeadPatternHD(
             
             if (distance < minDistance) {
               minDistance = distance;
-              closestColor = color;
               closestIndex = i;
             }
           }
         } else {
-          // Standard: Perceptually weighted RGB distance
           for (let i = 0; i < beadColors.length; i++) {
             const color = beadColors[i];
             const dr = r - color.r;
@@ -3111,54 +3095,45 @@ async function generateBeadPatternHD(
             
             if (distance < minDistance) {
               minDistance = distance;
-              closestColor = color;
               closestIndex = i;
             }
           }
         }
         
-        return { color: closestColor, index: closestIndex };
+        return closestIndex;
       };
       
-      for (let gridY = 0; gridY < gridRows; gridY++) {
-        for (let gridX = 0; gridX < gridCols; gridX++) {
-          // Calculate center pixel position
-          const startX = gridX * cellWidth;
-          const startY = gridY * cellHeight;
-          const endX = Math.min((gridX + 1) * cellWidth, squareSize);
-          const endY = Math.min((gridY + 1) * cellHeight, squareSize);
-          
+      // Helper function: get pixel color at (x, y)
+      const getPixelColor = (x: number, y: number) => {
+        const idx = (y * canvas.width + x) * 4;
+        return {
+          r: imageData.data[idx],
+          g: imageData.data[idx + 1],
+          b: imageData.data[idx + 2],
+          a: imageData.data[idx + 3]
+        };
+      };
+      
+      // Process each grid cell (与 V2 完全一致的循环结构)
+      for (let y = 0; y < gridRows; y++) {
+        const row: number[] = [];
+        
+        for (let x = 0; x < gridCols; x++) {
+          // Calculate the pixel range for this grid cell
+          const startX = x * cellWidth;
+          const startY = y * cellHeight;
+          const endX = Math.min((x + 1) * cellWidth, canvas.width);
+          const endY = Math.min((y + 1) * cellHeight, canvas.height);
+
           // Calculate center pixel position
           const centerX = Math.floor((startX + endX) / 2);
           const centerY = Math.floor((startY + endY) / 2);
           
-          // Multi-point sampling: average color from multiple points
+          // Get pixel color based on sampling mode
           let r: number, g: number, b: number, a: number;
           
-          // Helper function: get pixel color at (x, y)
-          const getPixelColor = (x: number, y: number) => {
-            const idx = (y * squareSize + x) * 4;
-            return {
-              r: imageData.data[idx],
-              g: imageData.data[idx + 1],
-              b: imageData.data[idx + 2],
-              a: imageData.data[idx + 3]
-            };
-          };
-          
-          // Calculate sampling points based on mode
-          const cellW = endX - startX;
-          const cellH = endY - startY;
-          
-          if (samplingMode === 'single') {
-            // 单点采样：只取中心点
-            const color = getPixelColor(centerX, centerY);
-            r = color.r;
-            g = color.g;
-            b = color.b;
-            a = color.a;
-          } else if (samplingMode === 'multi5') {
-            // 5点采样：暂时改为单点采样方式（只取中心点）
+          if (samplingMode === 'single' || samplingMode === 'multi5') {
+            // 单点/5点采样：只取中心点（目前5点暂用单点）
             const color = getPixelColor(centerX, centerY);
             r = color.r;
             g = color.g;
@@ -3166,6 +3141,8 @@ async function generateBeadPatternHD(
             a = color.a;
           } else {
             // 9点采样：3×3网格
+            const cellW = endX - startX;
+            const cellH = endY - startY;
             const stepX = cellW / 4;
             const stepY = cellH / 4;
             let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
@@ -3186,247 +3163,219 @@ async function generateBeadPatternHD(
             b = Math.round(sumB / 9);
             a = Math.round(sumA / 9);
           }
-          
-          cellData.push({
-            gridX,
-            gridY,
-            r, g, b, a,
-            matchedColor: null,
-            matchedColorIndex: -1
-          });
-          
-          // If pixel is visible, find closest bead color
+
           if (a >= 128) {
-            const { color, index } = findClosestBeadColor(r, g, b);
-            cellData[cellData.length - 1].matchedColor = color;
-            cellData[cellData.length - 1].matchedColorIndex = index;
-            
-            const existing = colorStats.get(index);
-            if (existing) {
-              existing.count++;
-            } else {
-              colorStats.set(index, { color, count: 1 });
-            }
+            const colorIndex = findClosestBeadColorIndex(r, g, b);
+            row.push(colorIndex);
+          } else {
+            row.push(-1);
           }
         }
+        
+        pixels.push(row);
       }
-      
-      // Step 4: Limit colors (统一使用 20 种颜色，与 perler_VERSION2 一致)
+
+      // Step 4: Calculate color statistics (与 V2 完全一致)
+      const stats = new Map<number, number>();
+      pixels.forEach(row => {
+        row.forEach(colorIndex => {
+          if (colorIndex >= 0) {
+            const count = stats.get(colorIndex) || 0;
+            stats.set(colorIndex, count + 1);
+          }
+        });
+      });
+
+      // Step 5: Limit to max 20 bead colors (与 V2 完全一致)
       const MAX_COLORS = 20;
-      
-      if (colorStats.size > MAX_COLORS) {
-        // Get top 20 most frequently used colors
-        const sortedEntries = Array.from(colorStats.entries())
-          .sort((a, b) => b[1].count - a[1].count)
-          .slice(0, MAX_COLORS);
-        
-        const selectedColorIndices = sortedEntries.map(([idx, _]) => idx);
-        
-        // Remap cells with non-top-20 colors
-        const selectedColorSet = new Set(selectedColorIndices);
-        
-        for (const cell of cellData) {
-          if (cell.matchedColorIndex >= 0 && !selectedColorSet.has(cell.matchedColorIndex)) {
-            // Find closest color from selected colors using beadColors RGB (与 V2 一致)
-            let minDist = Infinity;
-            let closestIndex = cell.matchedColorIndex;
+      if (stats.size > MAX_COLORS) {
+        const sortedColors = Array.from(stats.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_COLORS)
+          .map(entry => entry[0]);
+
+        const topColorSet = new Set(sortedColors);
+
+        for (let y = 0; y < gridRows; y++) {
+          for (let x = 0; x < gridCols; x++) {
+            const colorIndex = pixels[y][x];
+            if (colorIndex < 0) continue;
             
-            // 使用 beadColors 中的原始颜色 RGB（与 V2 一致）
-            const currentColor = beadColors[cell.matchedColorIndex];
-            for (const idx of selectedColorIndices) {
-              const topColor = beadColors[idx];
-              const dist = Math.sqrt(
+            if (topColorSet.has(colorIndex)) continue;
+
+            const currentColor = beadColors[colorIndex];
+            let minDistance = Infinity;
+            let closestIndex = colorIndex;
+
+            sortedColors.forEach(topIndex => {
+              const topColor = beadColors[topIndex];
+              const distance = Math.sqrt(
                 Math.pow(currentColor.r - topColor.r, 2) +
                 Math.pow(currentColor.g - topColor.g, 2) +
                 Math.pow(currentColor.b - topColor.b, 2)
               );
-              if (dist < minDist) {
-                minDist = dist;
-                closestIndex = idx;
+
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = topIndex;
               }
-            }
-            cell.matchedColorIndex = closestIndex;
-            cell.matchedColor = beadColors[closestIndex];
+            });
+
+            pixels[y][x] = closestIndex;
           }
         }
         
-        // Recalculate stats after remapping (与 V2 一致：clear 后重新统计)
-        colorStats.clear();
-        for (const cell of cellData) {
-          if (cell.matchedColorIndex >= 0) {
-            const count = colorStats.get(cell.matchedColorIndex)?.count || 0;
-            colorStats.set(cell.matchedColorIndex, { 
-              color: beadColors[cell.matchedColorIndex], 
-              count: count + 1 
-            });
-          }
-        }
-      }
-      
-      // Helper function
-      function hexToRgb(hex: string): { r: number; g: number; b: number } {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-          r: parseInt(result[1], 16),
-          g: parseInt(result[2], 16),
-          b: parseInt(result[3], 16)
-        } : { r: 255, g: 255, b: 255 };
-      }
-      
-      // Step 5: Build legend from final stats (与 V2 一致)
-      const legend: Array<{ code: string; hex: string; count: number }> = [];
-      const sortedStats = Array.from(colorStats.entries())
-        .sort((a, b) => b[1].count - a[1].count);
-      for (const [colorIndex, data] of sortedStats) {
-        legend.push({
-          code: data.color.colorCode,
-          hex: data.color.hex,
-          count: data.count
+        // Recalculate stats after remapping
+        stats.clear();
+        pixels.forEach(row => {
+          row.forEach(colorIndex => {
+            if (colorIndex >= 0) {
+              const count = stats.get(colorIndex) || 0;
+              stats.set(colorIndex, count + 1);
+            }
+          });
         });
       }
-      
-      const totalBeads = legend.reduce((sum, item) => sum + item.count, 0);
-      
-      // Step 6: Create output canvas with legend at bottom (与 V2 一致)
+
+      // Step 6: Build legend from final stats (与 V2 完全一致)
+      const legend: Array<{ code: string; hex: string; count: number }> = [];
+      const sortedStats = Array.from(stats.entries()).sort((a, b) => b[1] - a[1]);
+      for (const [colorIndex, count] of sortedStats) {
+        const color = beadColors[colorIndex];
+        legend.push({
+          code: color.colorCode,
+          hex: color.hex,
+          count
+        });
+      }
+
+      // Step 7: Render the bead pattern image (与 V2 完全一致)
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions (与 V2 一致：动态计算)
       const legendItemHeight = 50 * scale;
       const legendItemWidth = 200 * scale;
       const legendPaddingCalc = 40 * scale;
       const gridWidthPx = gridCols * baseCellSize;
       const legendCols = Math.floor((gridWidthPx - legendPaddingCalc * 2) / legendItemWidth);
-      const legendRowsCalc = Math.ceil(legend.length / Math.max(legendCols, 1));
-      const legendHeight = legendPaddingCalc * 2 + legendRowsCalc * legendItemHeight + 60 * scale;
+      const legendRows = Math.ceil(legend.length / Math.max(legendCols, 1));
+      const legendHeight = legendPaddingCalc * 2 + legendRows * legendItemHeight + 60 * scale;
       
-      // 画布尺寸（与 V2 一致）
-      const canvasWidth = gridCols * baseCellSize + labelPadding * 2;
-      const canvasHeight = gridRows * baseCellSize + labelPadding * 2 + legendHeight;
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = gridCols * baseCellSize + labelPadding * 2;
+      outputCanvas.height = gridRows * baseCellSize + labelPadding * 2 + legendHeight;
       
-      const canvas = document.createElement('canvas');
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('无法创建画布'));
+      const outputCtx = outputCanvas.getContext('2d');
+      if (!outputCtx) {
+        reject(new Error('无法创建输出画布'));
         return;
       }
       
       // Fill white background
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      outputCtx.fillStyle = '#FFFFFF';
+      outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
       
-      const cellSize = baseCellSize;
-      // 与 V2 一致：不居中，左上角对齐
-      const offsetX = labelPadding;
-      const offsetY = labelPadding;
-      const patternWidth = gridCols * baseCellSize;
-      const patternHeight = gridRows * baseCellSize;
+      // Draw grid labels on all four sides
+      outputCtx.fillStyle = '#000000';
+      outputCtx.font = `bold ${10 * scale}px Arial`;
+      outputCtx.textAlign = 'center';
+      outputCtx.textBaseline = 'middle';
       
-      // Calculate font size for color codes (same as V2)
-      const codeFontSize = Math.max(8, Math.floor(cellSize * 0.35));
-      
-      // Step 6: Draw grid labels on all four sides (与 V2 一致)
-      ctx.fillStyle = '#000000';
-      ctx.font = `bold ${10 * scale}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
       // Top column numbers
       for (let x = 0; x < gridCols; x++) {
-        ctx.fillText(String(x + 1), labelPadding + x * cellSize + cellSize / 2, labelPadding - 12 * scale);
+        outputCtx.fillText(String(x + 1), labelPadding + x * baseCellSize + baseCellSize / 2, labelPadding - 12 * scale);
       }
-
+      
       // Bottom column numbers
       for (let x = 0; x < gridCols; x++) {
-        ctx.fillText(String(x + 1), labelPadding + x * cellSize + cellSize / 2, labelPadding + gridRows * cellSize + 12 * scale);
+        outputCtx.fillText(String(x + 1), labelPadding + x * baseCellSize + baseCellSize / 2, labelPadding + gridRows * baseCellSize + 12 * scale);
       }
-
+      
       // Left row numbers
-      ctx.textAlign = 'right';
+      outputCtx.textAlign = 'right';
       for (let y = 0; y < gridRows; y++) {
-        ctx.fillText(String(y + 1), labelPadding - 8 * scale, labelPadding + y * cellSize + cellSize / 2);
+        outputCtx.fillText(String(y + 1), labelPadding - 8 * scale, labelPadding + y * baseCellSize + baseCellSize / 2);
       }
-
+      
       // Right row numbers
-      ctx.textAlign = 'left';
+      outputCtx.textAlign = 'left';
       for (let y = 0; y < gridRows; y++) {
-        ctx.fillText(String(y + 1), labelPadding + gridCols * cellSize + 8 * scale, labelPadding + y * cellSize + cellSize / 2);
+        outputCtx.fillText(String(y + 1), labelPadding + gridCols * baseCellSize + 8 * scale, labelPadding + y * baseCellSize + baseCellSize / 2);
       }
       
-      // Step 7: Fill grid cells (与 V2 一致：透明像素使用 clearRect)
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      // Draw bead cells
+      outputCtx.textAlign = 'center';
+      outputCtx.textBaseline = 'middle';
       
-      for (const cell of cellData) {
-        const x = offsetX + cell.gridX * cellSize;
-        const y = offsetY + cell.gridY * cellSize;
-        
-        if (cell.matchedColor) {
-          // Fill cell with bead color
-          ctx.fillStyle = cell.matchedColor.hex;
-          ctx.fillRect(x, y, cellSize, cellSize);
-        } else {
-          // Transparent cell - use clearRect (与 V2 一致)
-          ctx.clearRect(x, y, cellSize, cellSize);
+      for (let y = 0; y < gridRows; y++) {
+        for (let x = 0; x < gridCols; x++) {
+          const colorIndex = pixels[y][x];
+          const cellX = labelPadding + x * baseCellSize;
+          const cellY = labelPadding + y * baseCellSize;
+          
+          if (colorIndex >= 0) {
+            const color = beadColors[colorIndex];
+            outputCtx.fillStyle = color.hex;
+            outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
+          } else {
+            outputCtx.clearRect(cellX, cellY, baseCellSize, baseCellSize);
+          }
         }
       }
       
-      // Step 8: Draw grid lines (与 V2 一致：lineWidth = 2 * scale)
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 2 * scale;
+      // Draw grid lines
+      outputCtx.strokeStyle = '#000000';
+      outputCtx.lineWidth = 2 * scale;
       
       for (let x = 0; x <= gridCols; x++) {
-        ctx.beginPath();
-        ctx.moveTo(offsetX + x * cellSize, offsetY);
-        ctx.lineTo(offsetX + x * cellSize, offsetY + patternHeight);
-        ctx.stroke();
+        outputCtx.beginPath();
+        outputCtx.moveTo(labelPadding + x * baseCellSize, labelPadding);
+        outputCtx.lineTo(labelPadding + x * baseCellSize, labelPadding + gridRows * baseCellSize);
+        outputCtx.stroke();
       }
       
       for (let y = 0; y <= gridRows; y++) {
-        ctx.beginPath();
-        ctx.moveTo(offsetX, offsetY + y * cellSize);
-        ctx.lineTo(offsetX + patternWidth, offsetY + y * cellSize);
-        ctx.stroke();
+        outputCtx.beginPath();
+        outputCtx.moveTo(labelPadding, labelPadding + y * baseCellSize);
+        outputCtx.lineTo(labelPadding + gridCols * baseCellSize, labelPadding + y * baseCellSize);
+        outputCtx.stroke();
       }
       
-      // Step 9: Draw color codes (与 V2 一致)
+      // Draw color codes
       if (showColorCode) {
-        ctx.font = `bold ${codeFontSize}px Arial`;
-        
-        for (const cell of cellData) {
-          if (!cell.matchedColor) continue;
-          
-          // 使用预先计算的 RGB 值计算亮度
-          const luminance = (cell.matchedColor.r * 299 + cell.matchedColor.g * 587 + cell.matchedColor.b * 114) / 255;
-          ctx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
-          
-          const x = offsetX + cell.gridX * cellSize + cellSize / 2;
-          const y = offsetY + cell.gridY * cellSize + cellSize / 2;
-          ctx.fillText(cell.matchedColor.colorCode, x, y);
+        for (let y = 0; y < gridRows; y++) {
+          for (let x = 0; x < gridCols; x++) {
+            const colorIndex = pixels[y][x];
+            const cellX = labelPadding + x * baseCellSize;
+            const cellY = labelPadding + y * baseCellSize;
+            
+            if (colorIndex >= 0) {
+              const color = beadColors[colorIndex];
+              const luminance = (0.299 * color.r + 0.587 * color.g + 0.114 * color.b) / 255;
+              outputCtx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
+              outputCtx.font = `bold ${Math.max(8, Math.floor(baseCellSize * 0.35))}px Arial`;
+              outputCtx.fillText(color.colorCode, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
+            }
+          }
         }
       }
       
-      // Step 10: Draw legend at bottom (与 V2 一致)
-      const legendY = labelPadding + gridRows * cellSize + labelPadding;
+      // Draw legend at bottom
+      const legendY = labelPadding + gridRows * baseCellSize + labelPadding;
       
-      // Draw legend area background
-      ctx.fillStyle = '#F8F9FA';
-      ctx.fillRect(0, legendY, canvasWidth, canvasHeight - legendY);
+      outputCtx.fillStyle = '#F8F9FA';
+      outputCtx.fillRect(0, legendY, outputCanvas.width, outputCanvas.height - legendY);
       
-      // Draw legend title (centered)
-      ctx.fillStyle = '#000000';
-      ctx.font = `bold ${20 * scale}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.fillText(`拼豆色号图例 (${legend.length}种色号, 共${totalBeads}个拼豆)`, canvasWidth / 2, legendY + 35 * scale);
+      outputCtx.fillStyle = '#000000';
+      outputCtx.font = `bold ${20 * scale}px Arial`;
+      outputCtx.textAlign = 'center';
+      const totalBeads = legend.reduce((sum, c) => sum + c.count, 0);
+      outputCtx.fillText(`拼豆色号图例 (${legend.length}种色号, 共${totalBeads}个拼豆)`, outputCanvas.width / 2, legendY + 35 * scale);
       
-      // Draw legend items (与 V2 一致：色块 + 右侧色号 + 右侧数量)
+      const itemWidth = 200 * scale;
+      const itemHeight = 50 * scale;
       const legendPadding = 40 * scale;
-      const cols = Math.floor((gridWidthPx - legendPadding * 2) / legendItemWidth);
-      const itemWidth = legendItemWidth;
-      const itemHeight = legendItemHeight;
+      const cols = Math.floor((gridWidthPx - legendPadding * 2) / itemWidth);
       
       legend.forEach((item, idx) => {
         const row = Math.floor(idx / cols);
@@ -3434,31 +3383,28 @@ async function generateBeadPatternHD(
         const lx = labelPadding + legendPadding + col * itemWidth;
         const ly = legendY + legendPadding + 40 * scale + row * itemHeight;
         
-        // Color swatch (30x30)
-        ctx.fillStyle = item.hex;
-        ctx.fillRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
-        ctx.strokeStyle = '#CCCCCC';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
+        outputCtx.fillStyle = item.hex;
+        outputCtx.fillRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
+        outputCtx.strokeStyle = '#CCCCCC';
+        outputCtx.lineWidth = 1;
+        outputCtx.strokeRect(lx, ly - 15 * scale, 30 * scale, 30 * scale);
         
-        // Color code (bold, 色块右侧)
-        ctx.fillStyle = '#000000';
-        ctx.font = `bold ${14 * scale}px Arial`;
-        ctx.textAlign = 'left';
-        ctx.fillText(item.code, lx + 40 * scale, ly);
+        outputCtx.fillStyle = '#000000';
+        outputCtx.font = `bold ${14 * scale}px Arial`;
+        outputCtx.textAlign = 'left';
+        outputCtx.fillText(item.code, lx + 40 * scale, ly);
         
-        // Count (right aligned, 最右侧)
-        ctx.font = `bold ${14 * scale}px Arial`;
-        ctx.textAlign = 'right';
-        ctx.fillText(`${item.count}个`, lx + itemWidth - 10 * scale, ly + 8 * scale);
+        outputCtx.font = `bold ${14 * scale}px Arial`;
+        outputCtx.textAlign = 'right';
+        outputCtx.fillText(`${item.count}个`, lx + itemWidth - 10 * scale, ly + 8 * scale);
       });
-
+      
       resolve({
-        image: canvas.toDataURL('image/png'),
+        image: outputCanvas.toDataURL('image/png'),
         legend
       });
     };
-
+    
     img.onerror = () => reject(new Error('无法加载图片'));
     img.src = subjectImageUrl;
   });
