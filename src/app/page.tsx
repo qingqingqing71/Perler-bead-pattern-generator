@@ -440,11 +440,11 @@ export default function Home() {
       // 单点和5点采样都使用 V2 的处理方式
       if (samplingMode === 'single' || samplingMode === 'multi5') {
         // 生成不带色号的图纸用于显示在"处理结果"窗口
-        const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, beadColors);
+        const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode, beadColors);
         setFinalImage(displayResult.image);
         
         // 生成带色号的图纸用于显示在"拼豆图纸"区域
-        const withCodeResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, beadColors);
+        const withCodeResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode, beadColors);
         setBeadPatternImage(withCodeResult.image);
         
         setBeadPatternLegend(displayResult.legend);
@@ -499,7 +499,7 @@ export default function Home() {
       
       // 单点和5点采样都使用 V2 的处理方式
       if (samplingMode === 'single' || samplingMode === 'multi5') {
-        result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, beadColors);
+        result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode, beadColors);
       } else {
         result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode, beadColors);
       }
@@ -2630,6 +2630,7 @@ async function generateBeadPatternV2(
   scale: number = 3,
   showColorCode: boolean = true,
   colorMatchAccuracy: 'standard' | 'enhanced' = 'enhanced',
+  samplingMode: SamplingMode = 'single',  // 添加采样模式参数
   beadColors: BeadColor[] = []  // 使用 beads-colors API 的颜色数据
 ): Promise<{ image: string; legend: Array<{ code: string; hex: string; count: number }> }> {
   return new Promise((resolve, reject) => {
@@ -2709,7 +2710,18 @@ async function generateBeadPatternV2(
         return closestIndex;
       };
       
-      // Process each grid cell (exactly like perler_VERSION2)
+      // Helper function to get pixel color at (x, y)
+      const getPixelColor = (x: number, y: number) => {
+        const idx = (y * canvas.width + x) * 4;
+        return {
+          r: imageData.data[idx],
+          g: imageData.data[idx + 1],
+          b: imageData.data[idx + 2],
+          a: imageData.data[idx + 3]
+        };
+      };
+
+      // Process each grid cell (与 V2 完全一致的循环结构)
       for (let y = 0; y < gridRows; y++) {
         const row: number[] = [];
         
@@ -2720,16 +2732,70 @@ async function generateBeadPatternV2(
           const endX = Math.min((x + 1) * cellWidth, canvas.width);
           const endY = Math.min((y + 1) * cellHeight, canvas.height);
 
-          // Direct center pixel sampling: Read the exact color at grid center
+          // Calculate center pixel position
           const centerX = Math.floor((startX + endX) / 2);
           const centerY = Math.floor((startY + endY) / 2);
-
-          // Get the center pixel color directly
-          const i = (centerY * canvas.width + centerX) * 4;
-          const r = imageData.data[i];
-          const g = imageData.data[i + 1];
-          const b = imageData.data[i + 2];
-          const a = imageData.data[i + 3];
+          
+          // Get pixel color based on sampling mode
+          let r: number, g: number, b: number, a: number;
+          
+          if (samplingMode === 'single') {
+            // 单点采样：只取中心点
+            const color = getPixelColor(centerX, centerY);
+            r = color.r;
+            g = color.g;
+            b = color.b;
+            a = color.a;
+          } else if (samplingMode === 'multi5') {
+            // 5点采样：中心 + 四角
+            const cellW = endX - startX;
+            const cellH = endY - startY;
+            
+            // 5点位置：中心 + 四角
+            const points = [
+              { x: centerX, y: centerY },                              // 中心
+              { x: startX, y: startY },                                // 左上角
+              { x: endX - 1, y: startY },                              // 右上角
+              { x: startX, y: endY - 1 },                              // 左下角
+              { x: endX - 1, y: endY - 1 }                             // 右下角
+            ];
+            
+            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            points.forEach(p => {
+              const color = getPixelColor(p.x, p.y);
+              sumR += color.r;
+              sumG += color.g;
+              sumB += color.b;
+              sumA += color.a;
+            });
+            r = Math.round(sumR / 5);
+            g = Math.round(sumG / 5);
+            b = Math.round(sumB / 5);
+            a = Math.round(sumA / 5);
+          } else {
+            // 9点采样：3×3网格
+            const cellW = endX - startX;
+            const cellH = endY - startY;
+            const stepX = cellW / 4;
+            const stepY = cellH / 4;
+            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            
+            for (let dy = 0; dy <= 2; dy++) {
+              for (let dx = 0; dx <= 2; dx++) {
+                const px = Math.floor(startX + stepX * dx);
+                const py = Math.floor(startY + stepY * dy);
+                const color = getPixelColor(px, py);
+                sumR += color.r;
+                sumG += color.g;
+                sumB += color.b;
+                sumA += color.a;
+              }
+            }
+            r = Math.round(sumR / 9);
+            g = Math.round(sumG / 9);
+            b = Math.round(sumB / 9);
+            a = Math.round(sumA / 9);
+          }
 
           if (a >= 128) {
             // Center pixel is visible, use its color directly for bead matching
