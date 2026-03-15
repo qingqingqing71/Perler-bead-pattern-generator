@@ -35,8 +35,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
   // 使用 API 获取颜色数据（与 perler_VERSION2 完全一致）
   const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [gridWidth, setGridWidth] = useState(29); // Width in beads
-  const [gridHeight, setGridHeight] = useState(29); // Height in beads
+  const [gridWidth, setGridWidth] = useState(25); // Width in beads
+  const [gridHeight, setGridHeight] = useState(25); // Height in beads
   const [pixelGrid, setPixelGrid] = useState<PixelGrid | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -868,7 +868,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
           <div className="space-y-2 text-sm text-blue-800">
             <p><strong>1. 选择采样方式：</strong>单点采样取中心点颜色，5点/9点采样取多点平均值，适合色彩渐变图片</p>
             <p><strong>2. 上传图片：</strong>点击或拖拽上传您想要转换的图片</p>
-            <p><strong>3. 设置网格尺寸：</strong>设置网格大小（如 29x29、52x52）</p>
+            <p><strong>3. 设置网格尺寸：</strong>设置网格大小（如 25×25、52×52），支持非正方形</p>
             <p><strong>4. 选择匹配模式：</strong>专业模式使用 Lab 色彩空间，匹配更准确</p>
             <p><strong>5. 生成图纸：</strong>点击"生成拼豆图纸"按钮，自动匹配拼豆色号</p>
             <p><strong>6. 导出结果：</strong>支持导出高清 PNG 图纸和色号统计表</p>
@@ -881,49 +881,79 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
           <h2 className="text-xl font-semibold mb-4">设置</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <Label>网格尺寸（正方形）</Label>
-              <div className="mt-2">
-                <Label htmlFor="grid-width-v2" className="text-sm text-gray-600">
-                  尺寸（宽=高）
-                </Label>
-                <Input
-                  id="grid-width-v2"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={gridWidth === 0 ? '' : gridWidth}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '') {
-                      setGridWidth(0);
-                      setGridHeight(0);
-                      return;
-                    }
-                    const numValue = Number(value);
-                    if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {
-                      setGridWidth(numValue);
-                      setGridHeight(numValue);
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const value = e.target.value;
-                    const numValue = Number(value);
-                    if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 100) {
-                      setGridWidth(29);
-                      setGridHeight(29);
-                    }
-                  }}
-                  className="mt-1"
-                />
+              <Label>网格尺寸</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="grid-width-v2" className="text-sm text-gray-600">
+                    宽度
+                  </Label>
+                  <Input
+                    id="grid-width-v2"
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={gridWidth === 0 ? '' : gridWidth}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '') {
+                        setGridWidth(0);
+                        return;
+                      }
+                      const numValue = Number(value);
+                      if (!isNaN(numValue) && numValue >= 1 && numValue <= 200) {
+                        setGridWidth(numValue);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = e.target.value;
+                      const numValue = Number(value);
+                      if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 200) {
+                        setGridWidth(25);
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="grid-height-v2" className="text-sm text-gray-600">
+                    高度
+                  </Label>
+                  <Input
+                    id="grid-height-v2"
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={gridHeight === 0 ? '' : gridHeight}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '') {
+                        setGridHeight(0);
+                        return;
+                      }
+                      const numValue = Number(value);
+                      if (!isNaN(numValue) && numValue >= 1 && numValue <= 200) {
+                        setGridHeight(numValue);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = e.target.value;
+                      const numValue = Number(value);
+                      if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 200) {
+                        setGridHeight(25);
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                </div>
               </div>
               {/* Quick select buttons */}
               <div className="mt-3">
                 <p className="text-xs text-gray-500 mb-2">快速选择常用尺寸：</p>
                 <div className="flex flex-wrap gap-2">
-                  {[25, 29, 52, 100].map((size) => (
+                  {[25, 52, 100].map((size) => (
                     <Button
                       key={size}
-                      variant={gridWidth === size ? 'default' : 'outline'}
+                      variant={gridWidth === size && gridHeight === size ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => {
                         setGridWidth(size);
@@ -936,7 +966,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                网格必须为正方形，输入任意尺寸（1-100），宽和高自动保持一致
+                输入网格宽度和高度（1-200），支持非正方形网格
               </p>
             </div>
 
