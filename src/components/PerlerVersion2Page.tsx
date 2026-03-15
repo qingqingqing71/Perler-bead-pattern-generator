@@ -454,8 +454,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         });
       });
 
-      // Limit to max 20 bead colors
-      const MAX_COLORS = 20;
+      // Limit to max 30 bead colors
+      const MAX_COLORS = 30;
       if (stats.size > MAX_COLORS) {
         const sortedColors = Array.from(stats.entries())
           .sort((a, b) => b[1] - a[1])
@@ -556,8 +556,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 50;
-    const itemWidth = 200;
-    const itemsPerRow = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemWidth);
+    const itemsPerRow = 10; // 固定每行10个
+    const itemWidth = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemsPerRow);
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
     const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
 
@@ -718,8 +718,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 50;
-    const itemWidth = 200;
-    const itemsPerRow = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemWidth);
+    const itemsPerRow = 10; // 固定每行10个
+    const itemWidth = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemsPerRow);
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
     const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
 
