@@ -2940,13 +2940,14 @@ async function generateBeadPatternV2(
       const baseCellSize = 20 * scale;
       const labelPadding = 30 * scale;
       
-      // Calculate legend dimensions (like perler_VERSION2)
+      // Calculate legend dimensions (exactly like perler_VERSION2)
       const legendItemHeight = 50 * scale;
       const legendItemWidth = 200 * scale;
       const legendPaddingCalc = 40 * scale;
-      const legendCols = Math.floor((gridCols * baseCellSize + labelPadding * 2 - legendPaddingCalc * 2) / legendItemWidth);
+      const gridWidthPx = gridCols * baseCellSize; // Grid width in pixels (excluding labels)
+      const legendCols = Math.floor((gridWidthPx - legendPaddingCalc * 2) / legendItemWidth);
       const legendRows = Math.ceil(legend.length / Math.max(legendCols, 1));
-      const legendHeight = legendPaddingCalc * 2 + legendRows * legendItemHeight;
+      const legendHeight = legendPaddingCalc * 2 + legendRows * legendItemHeight + 60 * scale; // +60 for title (like perler_VERSION2)
       
       const outputCanvas = document.createElement('canvas');
       outputCanvas.width = gridCols * baseCellSize + labelPadding * 2;
@@ -3002,19 +3003,9 @@ async function generateBeadPatternV2(
           
           if (colorIndex >= 0) {
             const color = beadColors[colorIndex];
-            const colorRgb = hexToRgb(color.hex);
             // Fill cell with bead color
             outputCtx.fillStyle = color.hex;
             outputCtx.fillRect(cellX, cellY, baseCellSize, baseCellSize);
-            
-            // Draw color code if enabled (exactly like perler_VERSION2)
-            if (showColorCode) {
-              // Use contrast color based on RGB values
-              const luminance = (0.299 * colorRgb.r + 0.587 * colorRgb.g + 0.114 * colorRgb.b) / 255;
-              outputCtx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
-              outputCtx.font = `bold ${Math.max(8, Math.floor(baseCellSize * 0.35))}px Arial`;
-              outputCtx.fillText(color.code, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
-            }
           } else {
             // Transparent cell - use clearRect like perler_VERSION2
             outputCtx.clearRect(cellX, cellY, baseCellSize, baseCellSize);
@@ -3023,6 +3014,7 @@ async function generateBeadPatternV2(
       }
       
       // Draw grid lines (exactly like perler_VERSION2: lineWidth = 2)
+      // Grid lines are drawn AFTER cells but BEFORE color codes
       outputCtx.strokeStyle = '#000000';
       outputCtx.lineWidth = 2 * scale;
       
@@ -3040,6 +3032,27 @@ async function generateBeadPatternV2(
         outputCtx.stroke();
       }
       
+      // Draw color codes on top of grid lines (exactly like perler_VERSION2)
+      if (showColorCode) {
+        for (let y = 0; y < gridRows; y++) {
+          for (let x = 0; x < gridCols; x++) {
+            const colorIndex = pixels[y][x];
+            const cellX = labelPadding + x * baseCellSize;
+            const cellY = labelPadding + y * baseCellSize;
+            
+            if (colorIndex >= 0) {
+              const color = beadColors[colorIndex];
+              const colorRgb = hexToRgb(color.hex);
+              // Use contrast color based on RGB values
+              const luminance = (0.299 * colorRgb.r + 0.587 * colorRgb.g + 0.114 * colorRgb.b) / 255;
+              outputCtx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
+              outputCtx.font = `bold ${Math.max(8, Math.floor(baseCellSize * 0.35))}px Arial`;
+              outputCtx.fillText(color.code, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
+            }
+          }
+        }
+      }
+      
       // Draw legend at bottom (exactly like perler_VERSION2)
       const legendY = labelPadding + gridRows * baseCellSize + labelPadding;
       
@@ -3055,15 +3068,18 @@ async function generateBeadPatternV2(
       outputCtx.fillText(`拼豆色号图例 (${legend.length}种色号, 共${totalBeads}个拼豆)`, outputCanvas.width / 2, legendY + 35 * scale);
       
       // Draw legend items in rows (like perler_VERSION2)
+      // Calculate items per row based on grid width (not canvas width)
       const itemWidth = 200 * scale;
       const itemHeight = 50 * scale;
       const legendPadding = 40 * scale;
-      const cols = Math.floor((outputCanvas.width - legendPadding * 2) / itemWidth);
+      const gridWidthPx2 = gridCols * baseCellSize; // Width of grid area in pixels (excluding labels)
+      const cols = Math.floor((gridWidthPx2 - legendPadding * 2) / itemWidth);
       
       legend.forEach((item, idx) => {
         const row = Math.floor(idx / cols);
         const col = idx % cols;
-        const lx = legendPadding + col * itemWidth;
+        // Position relative to labelPadding (same as perler_VERSION2)
+        const lx = labelPadding + legendPadding + col * itemWidth;
         const ly = legendY + legendPadding + 40 * scale + row * itemHeight;
         
         // Color swatch (30x30 like perler_VERSION2)
