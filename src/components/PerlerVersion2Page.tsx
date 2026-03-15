@@ -987,12 +987,11 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
               {pixelGrid && (
                 <Button
                   onClick={exportImage}
-                  className="w-full"
-                  variant="outline"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white"
                   size="lg"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  导出图片
+                  导出拼豆图纸
                 </Button>
               )}
             </div>
