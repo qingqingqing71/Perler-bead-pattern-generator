@@ -540,8 +540,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const baseCellSize = 20;
-    const labelPadding = 30;
+    const baseCellSize = 40; // 提高格子大小以增加清晰度
+    const labelPadding = 50; // 标签区域padding
 
     // Calculate legend dimensions
     const colorList = Array.from(colorStats.entries())
@@ -556,7 +556,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 35;
-    const minItemWidth = 100; // 最小图例项宽度，确保不重叠
+    const minItemWidth = 120; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
     
     // 计算图例所需宽度
@@ -568,7 +568,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const itemWidth = Math.floor((canvasWidth - labelPadding * 2 - legendPadding * 2) / itemsPerRow);
     
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
-    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
+    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 80;
 
     canvas.width = canvasWidth;
     canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
@@ -586,7 +586,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     // Draw grid labels on all four sides
     ctx.fillStyle = '#000000';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold 16px Arial'; // 序号字体放大
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -659,7 +659,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
             // 使用 beadColor 中预先计算的 r, g, b 值
             const luminance = (0.299 * beadColor.r + 0.587 * beadColor.g + 0.114 * beadColor.b) / 255;
             ctx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
-            ctx.font = `bold ${Math.max(8, Math.floor(cellSize * 0.35))}px Arial`;
+            ctx.font = `bold ${Math.max(10, Math.floor(cellSize * 0.4))}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(beadColor.colorCode, offsetX + x * cellSize + cellSize / 2, offsetY + y * cellSize + cellSize / 2);
@@ -676,9 +676,9 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.fillRect(0, legendY, canvas.width, legendHeight);
 
       ctx.fillStyle = '#000000';
-      ctx.font = 'bold 20px Arial';
+      ctx.font = 'bold 24px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 35);
+      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 40);
 
       colorList.forEach((item, index) => {
         const row = Math.floor(index / itemsPerRow);
@@ -686,19 +686,19 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
         // 图例从画布左边开始绘制，独立于网格位置
         const x = legendPadding + col * itemWidth;
-        const y = legendY + legendPadding + 40 + row * itemHeight;
+        const y = legendY + legendPadding + 50 + row * itemHeight;
 
         // 绘制色块
         ctx.fillStyle = item.hex;
-        ctx.fillRect(x, y - 12, 24, 24);
+        ctx.fillRect(x, y - 14, 28, 28);
         ctx.strokeStyle = '#CCCCCC';
-        ctx.strokeRect(x, y - 12, 24, 24);
+        ctx.strokeRect(x, y - 14, 28, 28);
 
         // 色号和数量在同一横排显示
         ctx.fillStyle = '#000000';
-        ctx.font = 'bold 12px Arial';
+        ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(`${item.colorCode} (${item.count})`, x + 30, y + 2);
+        ctx.fillText(`${item.colorCode} (${item.count})`, x + 35, y + 2);
       });
     }
   };
@@ -711,8 +711,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const baseCellSize = 20;
-    const labelPadding = 30;
+    const baseCellSize = 40; // 提高格子大小以增加清晰度
+    const labelPadding = 50; // 标签区域padding
 
     // Calculate legend dimensions
     const colorList = Array.from(colorStats.entries())
@@ -727,7 +727,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     const legendPadding = 40;
     const itemHeight = 35;
-    const minItemWidth = 100; // 最小图例项宽度，确保不重叠
+    const minItemWidth = 120; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
     
     // 计算图例所需宽度
@@ -739,7 +739,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const itemWidth = Math.floor((canvasWidth - labelPadding * 2 - legendPadding * 2) / itemsPerRow);
     
     const legendRows = Math.ceil(colorList.length / itemsPerRow);
-    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
+    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 80;
 
     canvas.width = canvasWidth;
     canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
@@ -757,7 +757,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
     // Draw grid labels on all four sides
     ctx.fillStyle = '#000000';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold 16px Arial'; // 序号字体放大
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -827,9 +827,9 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.fillRect(0, legendY, canvas.width, legendHeight);
 
       ctx.fillStyle = '#000000';
-      ctx.font = 'bold 20px Arial';
+      ctx.font = 'bold 24px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 35);
+      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 40);
 
       colorList.forEach((item, index) => {
         const row = Math.floor(index / itemsPerRow);
@@ -837,19 +837,19 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
         // 图例从画布左边开始绘制，独立于网格位置
         const x = legendPadding + col * itemWidth;
-        const y = legendY + legendPadding + 40 + row * itemHeight;
+        const y = legendY + legendPadding + 50 + row * itemHeight;
 
         // 绘制色块
         ctx.fillStyle = item.hex;
-        ctx.fillRect(x, y - 12, 24, 24);
+        ctx.fillRect(x, y - 14, 28, 28);
         ctx.strokeStyle = '#CCCCCC';
-        ctx.strokeRect(x, y - 12, 24, 24);
+        ctx.strokeRect(x, y - 14, 28, 28);
 
         // 色号和数量在同一横排显示
         ctx.fillStyle = '#000000';
-        ctx.font = 'bold 12px Arial';
+        ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(`${item.colorCode} (${item.count})`, x + 30, y + 2);
+        ctx.fillText(`${item.colorCode} (${item.count})`, x + 35, y + 2);
       });
     }
   };
