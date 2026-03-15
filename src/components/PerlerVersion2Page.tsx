@@ -46,8 +46,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   // 使用 API 获取颜色数据（与 perler_VERSION2 完全一致）
   const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [gridWidth, setGridWidth] = useState(25); // Width in beads
-  const [gridHeight, setGridHeight] = useState(25); // Height in beads
+  const [gridWidth, setGridWidth] = useState(52); // Width in beads
+  const [gridHeight, setGridHeight] = useState(52); // Height in beads
   const [pixelGrid, setPixelGrid] = useState<PixelGrid | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -926,7 +926,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                       const value = e.target.value;
                       const numValue = Number(value);
                       if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 200) {
-                        setGridWidth(25);
+                        setGridWidth(52);
                       }
                     }}
                     className="mt-1"
@@ -957,7 +957,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                       const value = e.target.value;
                       const numValue = Number(value);
                       if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 200) {
-                        setGridHeight(25);
+                        setGridHeight(52);
                       }
                     }}
                     className="mt-1"
