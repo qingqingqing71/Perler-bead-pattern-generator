@@ -311,7 +311,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
             b = color.b;
             a = color.a;
           } else {
-            // 5点采样：中心 + 四角
+            // 5点采样：中心 + 四角（只计算非透明点）
             const points = [
               { x: centerX, y: centerY },                              // 中心
               { x: startX, y: startY },                                // 左上角
@@ -320,18 +320,34 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
               { x: endX - 1, y: endY - 1 }                             // 右下角
             ];
 
-            let sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+            let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
+            let hasValidPixel = false;
+            
             points.forEach(p => {
               const color = getPixelColor(p.x, p.y);
-              sumR += color.r;
-              sumG += color.g;
-              sumB += color.b;
-              sumA += color.a;
+              // 只计算非透明点（a >= 128）
+              if (color.a >= 128) {
+                sumR += color.r;
+                sumG += color.g;
+                sumB += color.b;
+                validCount++;
+                hasValidPixel = true;
+              }
             });
-            r = Math.round(sumR / 5);
-            g = Math.round(sumG / 5);
-            b = Math.round(sumB / 5);
-            a = Math.round(sumA / 5);
+            
+            if (hasValidPixel) {
+              // 有有效的像素点，取平均值
+              r = Math.round(sumR / validCount);
+              g = Math.round(sumG / validCount);
+              b = Math.round(sumB / validCount);
+              a = 255;  // 有有效像素，标记为不透明
+            } else {
+              // 所有点都是透明的
+              r = 255;
+              g = 255;
+              b = 255;
+              a = 0;
+            }
           }
 
           if (a >= 128) {
