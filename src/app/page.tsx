@@ -24,8 +24,18 @@ import {
   LogOut,
   ZoomIn,
 } from 'lucide-react';
-import { findClosestMardColor, MardColor, ColorMatchAccuracy, SamplingMode, MARD_COLORS, rgbToLab, deltaE2000 } from '@/lib/mardColors';
+import { SamplingMode, rgbToLab, deltaE2000 } from '@/lib/mardColors';
 import PerlerVersion2Page from '@/components/PerlerVersion2Page';
+
+// Bead color type from beads-colors API
+interface BeadColor {
+  colorName: string;
+  colorCode: string;
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+}
 
 type ProcessingStep = 'idle' | 'uploading' | 'generating-grid' | 'done';
 
@@ -80,9 +90,24 @@ export default function Home() {
   const [pixelatedSubject, setPixelatedSubject] = useState<string | null>(null); // 单独的像素化主体（透明背景）
   const [isPixelating, setIsPixelating] = useState(false);
   const [beadPatternImage, setBeadPatternImage] = useState<string | null>(null);
-  const [beadPatternLegend, setBeadPatternLegend] = useState<Array<MardColor & { count: number }>>([]);
+  const [beadPatternLegend, setBeadPatternLegend] = useState<Array<{ code: string; hex: string; count: number }>>([]);
   const [isGeneratingBeadPattern, setIsGeneratingBeadPattern] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Bead colors from API (统一使用 beads-colors API 的 221 色数据)
+  const [beadColors, setBeadColors] = useState<BeadColor[]>([]);
+  
+  // Load bead colors on mount
+  useEffect(() => {
+    fetch('/api/beads-colors')
+      .then(res => res.json())
+      .then(data => {
+        setBeadColors(data);
+      })
+      .catch(err => {
+        console.error('Failed to load bead colors:', err);
+      });
+  }, []);
 
   // 用户认证函数
   const handleAuth = async () => {
@@ -415,20 +440,20 @@ export default function Home() {
       // 单点采样时使用 perler_VERSION2 的处理方式
       if (samplingMode === 'single') {
         // 生成不带色号的图纸用于显示在"处理结果"窗口
-        const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy);
+        const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, beadColors);
         setFinalImage(displayResult.image);
         
         // 生成带色号的图纸用于显示在"拼豆图纸"区域
-        const withCodeResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy);
+        const withCodeResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, beadColors);
         setBeadPatternImage(withCodeResult.image);
         
         setBeadPatternLegend(displayResult.legend);
       } else {
         // 多点采样时使用原有的 HD 处理方式
-        const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode);
+        const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode, beadColors);
         setFinalImage(displayResult.image);
         
-        const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode);
+        const withCodeResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, true, colorMatchAccuracy, samplingMode, beadColors);
         setBeadPatternImage(withCodeResult.image);
         
         setBeadPatternLegend(displayResult.legend);
@@ -442,7 +467,7 @@ export default function Home() {
     } finally {
       setIsGeneratingBeadPattern(false);
     }
-  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, isGeneratingBeadPattern, colorMatchAccuracy, samplingMode]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, isGeneratingBeadPattern, colorMatchAccuracy, samplingMode, beadColors]);
 
   const handleDownload = useCallback(() => {
     if (!originalImage) return;
@@ -474,9 +499,9 @@ export default function Home() {
       
       // 单点采样时使用 perler_VERSION2 的处理方式
       if (samplingMode === 'single') {
-        result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy);
+        result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, beadColors);
       } else {
-        result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode);
+        result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode, beadColors);
       }
       
       const link = document.createElement('a');
@@ -489,7 +514,7 @@ export default function Home() {
       console.error('HD download error:', err);
       setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy, samplingMode]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy, samplingMode, beadColors]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
@@ -2596,185 +2621,6 @@ async function removeBackgroundColors(imageUrl: string): Promise<string> {
   });
 }
 
-// Generate bead pattern with MARD color codes (based on pixelated image)
-async function generateBeadPattern(
-  imageUrl: string,
-  gridSize: number,
-  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
-): Promise<{ image: string; legend: MardColor[] }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        reject(new Error('无法创建画布'));
-        return;
-      }
-
-      // Set canvas size to image size (should be 800x800 from pixelateImage)
-      canvas.width = img.width;
-      canvas.height = img.height;
-      
-      // Fill with white background first
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Get source image data for processing
-      const srcCanvas = document.createElement('canvas');
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) {
-        reject(new Error('无法创建源画布'));
-        return;
-      }
-      srcCanvas.width = img.width;
-      srcCanvas.height = img.height;
-      srcCtx.drawImage(img, 0, 0);
-      
-      const srcImageData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
-      const srcData = srcImageData.data;
-
-      // Calculate pixel size - the pixelated image is 800x800, divided by grid count
-      const canvasSize = 800; // Fixed size from pixelateImage
-      const pixelSize = canvasSize / gridSize;
-      
-      // Color tracking for legend
-      const colorMap = new Map<string, MardColor>();
-
-      // Calculate font size based on pixel size - text should fit within the grid cell
-      // Color codes are typically 2-3 characters (e.g., "A1", "B12")
-      // Use smaller font for smaller grids to ensure text doesn't overflow
-      // For 2-char codes: max width should be ~60% of cell size
-      // For 3-char codes: max width should be ~80% of cell size
-      const estimatedCharWidth = pixelSize * 0.25; // Rough estimate for monospace-like width
-      const maxTextWidth = pixelSize * 0.7; // Leave some padding
-      const fontSizeFromWidth = Math.floor(maxTextWidth / 2.5); // Assume max 2.5 chars width
-      const fontSizeFromHeight = Math.floor(pixelSize * 0.45); // Height constraint
-      const fontSize = Math.max(4, Math.min(fontSizeFromWidth, fontSizeFromHeight, Math.floor(pixelSize * 0.35)));
-      
-      // Store blocks info for drawing text later
-      const blocksInfo: Array<{
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        color: MardColor;
-        avgR: number;
-        avgG: number;
-        avgB: number;
-      }> = [];
-
-      // Process each pixel block - fill subject area with colors, leave background white
-      for (let gridY = 0; gridY < gridSize; gridY++) {
-        for (let gridX = 0; gridX < gridSize; gridX++) {
-          // Calculate pixel block boundaries
-          const x1 = Math.floor(gridX * pixelSize);
-          const y1 = Math.floor(gridY * pixelSize);
-          const x2 = Math.min(Math.floor((gridX + 1) * pixelSize), canvas.width);
-          const y2 = Math.min(Math.floor((gridY + 1) * pixelSize), canvas.height);
-
-          // Calculate average color for this block from source
-          let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
-          let pixelCount = 0;
-
-          for (let y = y1; y < y2; y++) {
-            for (let x = x1; x < x2; x++) {
-              const idx = (y * srcCanvas.width + x) * 4;
-              totalR += srcData[idx];
-              totalG += srcData[idx + 1];
-              totalB += srcData[idx + 2];
-              totalA += srcData[idx + 3];
-              pixelCount++;
-            }
-          }
-
-          // Only process subject area (non-transparent pixels)
-          // Background (transparent) stays white with no color code
-          if (pixelCount > 0 && totalA / pixelCount > 25) {
-            const avgR = Math.round(totalR / pixelCount);
-            const avgG = Math.round(totalG / pixelCount);
-            const avgB = Math.round(totalB / pixelCount);
-
-            // Find nearest MARD color for the legend
-            const nearestColor = findClosestMardColor(avgR, avgG, avgB, colorMatchAccuracy);
-            
-            // Track color for legend
-            if (!colorMap.has(nearestColor.code)) {
-              colorMap.set(nearestColor.code, nearestColor);
-            }
-
-            // Fill the block with original average color (keep pixelated look)
-            ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-
-            // Store block info for text drawing
-            blocksInfo.push({
-              x: x1,
-              y: y1,
-              width: x2 - x1,
-              height: y2 - y1,
-              color: nearestColor,
-              avgR,
-              avgG,
-              avgB
-            });
-          }
-          // Else: transparent/background area stays white, no color code
-        }
-      }
-
-      // Draw MARD color codes only on subject blocks
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      for (const block of blocksInfo) {
-        // Determine text color based on background brightness
-        const brightness = (block.avgR * 299 + block.avgG * 587 + block.avgB * 114) / 1000;
-        ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
-        
-        ctx.font = `bold ${fontSize}px Arial`;
-        const centerX = block.x + block.width / 2;
-        const centerY = block.y + block.height / 2;
-        ctx.fillText(block.color.code, centerX, centerY);
-      }
-
-      // Draw grid lines on top
-      ctx.strokeStyle = '#d1d5db';
-      ctx.lineWidth = 1;
-
-      for (let i = 0; i <= gridSize; i++) {
-        const pos = Math.floor(i * pixelSize);
-        
-        // Vertical line
-        ctx.beginPath();
-        ctx.moveTo(pos, 0);
-        ctx.lineTo(pos, canvas.height);
-        ctx.stroke();
-        
-        // Horizontal line
-        ctx.beginPath();
-        ctx.moveTo(0, pos);
-        ctx.lineTo(canvas.width, pos);
-        ctx.stroke();
-      }
-
-      // Convert color map to legend array
-      const legend = Array.from(colorMap.values()).sort((a, b) => a.code.localeCompare(b.code));
-
-      resolve({
-        image: canvas.toDataURL('image/png'),
-        legend
-      });
-    };
-
-    img.onerror = () => reject(new Error('无法加载图片'));
-    img.src = imageUrl;
-  });
-}
-
 // Generate bead pattern using perler_VERSION2's exact approach
 // Direct center pixel sampling with index-based color tracking
 async function generateBeadPatternV2(
@@ -2783,8 +2629,9 @@ async function generateBeadPatternV2(
   gridRows: number,
   scale: number = 3,
   showColorCode: boolean = true,
-  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced'
-): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
+  colorMatchAccuracy: 'standard' | 'enhanced' = 'enhanced',
+  beadColors: BeadColor[] = []  // 使用 beads-colors API 的颜色数据
+): Promise<{ image: string; legend: Array<{ code: string; hex: string; count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -2821,9 +2668,8 @@ async function generateBeadPatternV2(
       // Step 3: Process each grid cell - direct center pixel sampling
       // Using color indices (like perler_VERSION2)
       const pixels: number[][] = []; // color indices, -1 = transparent
-      const beadColors = MARD_COLORS; // Use the MARD colors array
       
-      // Helper function to find closest bead color (like perler_VERSION2)
+      // Helper function to find closest bead color using pre-calculated RGB values
       const findClosestBeadColorIndex = (r: number, g: number, b: number): number => {
         let minDistance = Infinity;
         let closestIndex = 0;
@@ -2834,8 +2680,8 @@ async function generateBeadPatternV2(
           
           for (let i = 0; i < beadColors.length; i++) {
             const color = beadColors[i];
-            const rgb = hexToRgb(color.hex);
-            const colorLab = rgbToLab(rgb.r, rgb.g, rgb.b);
+            // 使用预先计算的 RGB 值（与 beads-colors API 一致）
+            const colorLab = rgbToLab(color.r, color.g, color.b);
             const distance = deltaE2000(inputLab, colorLab);
             
             if (distance < minDistance) {
@@ -2847,10 +2693,10 @@ async function generateBeadPatternV2(
           // Standard: Perceptually weighted RGB distance
           for (let i = 0; i < beadColors.length; i++) {
             const color = beadColors[i];
-            const rgb = hexToRgb(color.hex);
-            const dr = r - rgb.r;
-            const dg = g - rgb.g;
-            const db = b - rgb.b;
+            // 使用预先计算的 RGB 值（与 beads-colors API 一致）
+            const dr = r - color.r;
+            const dg = g - color.g;
+            const db = b - color.b;
             const distance = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
             
             if (distance < minDistance) {
@@ -2929,19 +2775,18 @@ async function generateBeadPatternV2(
             
             if (topColorSet.has(colorIndex)) continue;
 
-            // Find closest color in top 20 using bead color RGB values
+            // Find closest color in top 20 using pre-calculated RGB values
             const currentColor = beadColors[colorIndex];
-            const currentRgb = hexToRgb(currentColor.hex);
             let minDistance = Infinity;
             let closestIndex = colorIndex;
 
             sortedColors.forEach(topIndex => {
               const topColor = beadColors[topIndex];
-              const topRgb = hexToRgb(topColor.hex);
+              // 使用预先计算的 RGB 值（与 beads-colors API 一致）
               const distance = Math.sqrt(
-                Math.pow(currentRgb.r - topRgb.r, 2) +
-                Math.pow(currentRgb.g - topRgb.g, 2) +
-                Math.pow(currentRgb.b - topRgb.b, 2)
+                Math.pow(currentColor.r - topColor.r, 2) +
+                Math.pow(currentColor.g - topColor.g, 2) +
+                Math.pow(currentColor.b - topColor.b, 2)
               );
 
               if (distance < minDistance) {
@@ -2967,12 +2812,12 @@ async function generateBeadPatternV2(
       }
 
       // Step 6: Build legend from final stats
-      const legend: Array<MardColor & { count: number }> = [];
+      const legend: Array<{ code: string; hex: string; count: number }> = [];
       const sortedStats = Array.from(stats.entries()).sort((a, b) => b[1] - a[1]);
       for (const [colorIndex, count] of sortedStats) {
         const color = beadColors[colorIndex];
         legend.push({
-          code: color.code,
+          code: color.colorCode,
           hex: color.hex,
           count
         });
@@ -3084,12 +2929,11 @@ async function generateBeadPatternV2(
             
             if (colorIndex >= 0) {
               const color = beadColors[colorIndex];
-              const colorRgb = hexToRgb(color.hex);
-              // Use contrast color based on RGB values
-              const luminance = (0.299 * colorRgb.r + 0.587 * colorRgb.g + 0.114 * colorRgb.b) / 255;
+              // 使用预先计算的 RGB 值计算亮度
+              const luminance = (0.299 * color.r + 0.587 * color.g + 0.114 * color.b) / 255;
               outputCtx.fillStyle = luminance > 0.5 ? '#000000' : '#ffffff';
               outputCtx.font = `bold ${Math.max(8, Math.floor(baseCellSize * 0.35))}px Arial`;
-              outputCtx.fillText(color.code, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
+              outputCtx.fillText(color.colorCode, cellX + baseCellSize / 2, cellY + baseCellSize / 2);
             }
           }
         }
@@ -3184,9 +3028,10 @@ async function generateBeadPatternHD(
   gridRows: number,  // 网格行数（高度）
   scale: number = 3,
   showColorCode: boolean = true,
-  colorMatchAccuracy: ColorMatchAccuracy = 'enhanced',
-  samplingMode: SamplingMode = 'multi5'  // 默认使用5点采样
-): Promise<{ image: string; legend: Array<MardColor & { count: number }> }> {
+  colorMatchAccuracy: 'standard' | 'enhanced' = 'enhanced',
+  samplingMode: SamplingMode = 'multi5',  // 默认使用5点采样
+  beadColors: BeadColor[]  // 使用 beads-colors API 的颜色数据
+): Promise<{ image: string; legend: Array<{ code: string; hex: string; count: number }> }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -3228,10 +3073,52 @@ async function generateBeadPatternHD(
         g: number;
         b: number;
         a: number;
-        mardColor: MardColor | null;
+        matchedColor: BeadColor | null;
+        matchedColorIndex: number;
       }> = [];
       
-      const colorStats = new Map<string, { color: MardColor; count: number }>();
+      const colorStats = new Map<number, { color: BeadColor; count: number }>();
+      
+      // Helper function to find closest bead color using pre-calculated RGB values
+      const findClosestBeadColor = (r: number, g: number, b: number): { color: BeadColor; index: number } => {
+        let minDistance = Infinity;
+        let closestColor = beadColors[0];
+        let closestIndex = 0;
+        
+        if (colorMatchAccuracy === 'enhanced') {
+          // Enhanced: CIEDE2000 in Lab color space
+          const inputLab = rgbToLab(r, g, b);
+          
+          for (let i = 0; i < beadColors.length; i++) {
+            const color = beadColors[i];
+            const colorLab = rgbToLab(color.r, color.g, color.b);
+            const distance = deltaE2000(inputLab, colorLab);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestColor = color;
+              closestIndex = i;
+            }
+          }
+        } else {
+          // Standard: Perceptually weighted RGB distance
+          for (let i = 0; i < beadColors.length; i++) {
+            const color = beadColors[i];
+            const dr = r - color.r;
+            const dg = g - color.g;
+            const db = b - color.b;
+            const distance = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestColor = color;
+              closestIndex = i;
+            }
+          }
+        }
+        
+        return { color: closestColor, index: closestIndex };
+      };
       
       for (let gridY = 0; gridY < gridRows; gridY++) {
         for (let gridX = 0; gridX < gridCols; gridX++) {
@@ -3320,19 +3207,21 @@ async function generateBeadPatternHD(
             gridX,
             gridY,
             r, g, b, a,
-            mardColor: null
+            matchedColor: null,
+            matchedColorIndex: -1
           });
           
           // If pixel is visible, find closest bead color
           if (a >= 128) {
-            const mardColor = findClosestMardColor(r, g, b, colorMatchAccuracy);
-            cellData[cellData.length - 1].mardColor = mardColor;
+            const { color, index } = findClosestBeadColor(r, g, b);
+            cellData[cellData.length - 1].matchedColor = color;
+            cellData[cellData.length - 1].matchedColorIndex = index;
             
-            const existing = colorStats.get(mardColor.code);
+            const existing = colorStats.get(index);
             if (existing) {
               existing.count++;
             } else {
-              colorStats.set(mardColor.code, { color: mardColor, count: 1 });
+              colorStats.set(index, { color, count: 1 });
             }
           }
         }
@@ -3342,7 +3231,7 @@ async function generateBeadPatternHD(
       // perler_VERSION2 style: single point sampling uses max 20 colors
       // Multi-point sampling uses max 30 colors for better color accuracy
       const MAX_COLORS = samplingMode === 'single' ? 20 : 30;
-      let selectedColors: MardColor[];
+      let selectedColorIndices: number[];
       
       if (colorStats.size > MAX_COLORS) {
         // Get top 30 most frequently used colors
@@ -3350,47 +3239,48 @@ async function generateBeadPatternHD(
           .sort((a, b) => b[1].count - a[1].count)
           .slice(0, MAX_COLORS);
         
-        selectedColors = sortedEntries.map(([_, data]) => data.color);
+        selectedColorIndices = sortedEntries.map(([idx, _]) => idx);
         
         // Remap cells with non-top-30 colors
-        const selectedColorSet = new Set(selectedColors.map(c => c.code));
+        const selectedColorSet = new Set(selectedColorIndices);
         
         for (const cell of cellData) {
-          if (cell.mardColor && !selectedColorSet.has(cell.mardColor.code)) {
-            // Find closest color from selected colors
+          if (cell.matchedColorIndex >= 0 && !selectedColorSet.has(cell.matchedColorIndex)) {
+            // Find closest color from selected colors using pre-calculated RGB values
             let minDist = Infinity;
-            let closestColor = cell.mardColor;
+            let closestIndex = cell.matchedColorIndex;
             
-            for (const color of selectedColors) {
-              const rgb = hexToRgb(color.hex);
+            for (const idx of selectedColorIndices) {
+              const color = beadColors[idx];
               const dist = Math.sqrt(
-                Math.pow(cell.r - rgb.r, 2) +
-                Math.pow(cell.g - rgb.g, 2) +
-                Math.pow(cell.b - rgb.b, 2)
+                Math.pow(cell.r - color.r, 2) +
+                Math.pow(cell.g - color.g, 2) +
+                Math.pow(cell.b - color.b, 2)
               );
               if (dist < minDist) {
                 minDist = dist;
-                closestColor = color;
+                closestIndex = idx;
               }
             }
-            cell.mardColor = closestColor;
+            cell.matchedColorIndex = closestIndex;
+            cell.matchedColor = beadColors[closestIndex];
           }
         }
         
         // Recalculate stats after remapping
         colorStats.clear();
         for (const cell of cellData) {
-          if (cell.mardColor) {
-            const existing = colorStats.get(cell.mardColor.code);
+          if (cell.matchedColorIndex >= 0) {
+            const existing = colorStats.get(cell.matchedColorIndex);
             if (existing) {
               existing.count++;
             } else {
-              colorStats.set(cell.mardColor.code, { color: cell.mardColor, count: 1 });
+              colorStats.set(cell.matchedColorIndex, { color: cell.matchedColor!, count: 1 });
             }
           }
         }
       } else {
-        selectedColors = Array.from(colorStats.values()).map(v => v.color);
+        selectedColorIndices = Array.from(colorStats.keys());
       }
       
       // Helper function
@@ -3409,7 +3299,7 @@ async function generateBeadPatternHD(
       
       // Calculate legend dimensions (at bottom, 2 rows, 10 items per row)
       const sortedColors = Array.from(colorStats.entries())
-        .filter(([code, _]) => code !== 'W')
+        .filter(([idx, _]) => idx >= 0)  // 排除无效索引
         .sort((a, b) => b[1].count - a[1].count);
       
       const totalBeads = sortedColors.reduce((sum, [_, data]) => sum + data.count, 0);
@@ -3498,22 +3388,19 @@ async function generateBeadPatternHD(
       }
       
       // Step 7: Fill grid cells
-      const whiteMardColor: MardColor = { code: 'W', hex: '#FFFFFF' };
+      const whiteColor: BeadColor = { colorName: 'W', colorCode: 'W', hex: '#FFFFFF', r: 255, g: 255, b: 255 };
       
       for (const cell of cellData) {
         const x = offsetX + cell.gridX * cellSize;
         const y = offsetY + cell.gridY * cellSize;
         
-        let finalColor: MardColor;
-        let finalRgb: { r: number; g: number; b: number };
+        let finalColor: BeadColor;
         
-        if (cell.mardColor) {
-          finalColor = cell.mardColor;
-          finalRgb = hexToRgb(finalColor.hex);
+        if (cell.matchedColor) {
+          finalColor = cell.matchedColor;
         } else {
           // Transparent or background - fill white
-          finalColor = whiteMardColor;
-          finalRgb = { r: 255, g: 255, b: 255 };
+          finalColor = whiteColor;
         }
         
         // Fill cell with color
@@ -3546,15 +3433,15 @@ async function generateBeadPatternHD(
         ctx.font = `bold ${codeFontSize}px Arial`;
         
         for (const cell of cellData) {
-          if (!cell.mardColor) continue;
+          if (!cell.matchedColor) continue;
           
-          const rgb = hexToRgb(cell.mardColor.hex);
-          const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+          // 使用预先计算的 RGB 值计算亮度
+          const brightness = (cell.matchedColor.r * 299 + cell.matchedColor.g * 587 + cell.matchedColor.b * 114) / 1000;
           ctx.fillStyle = brightness > 128 ? '#000000' : '#ffffff';
           
           const x = offsetX + cell.gridX * cellSize + cellSize / 2;
           const y = offsetY + cell.gridY * cellSize + cellSize / 2;
-          ctx.fillText(cell.mardColor.code, x, y);
+          ctx.fillText(cell.matchedColor.colorCode, x, y);
         }
       }
       
@@ -3588,7 +3475,7 @@ async function generateBeadPatternHD(
         const totalLegendWidth = itemsPerRow * actualItemWidth - itemGap;
         const legendStartX = (canvasWidth - totalLegendWidth) / 2;
         
-        sortedColors.forEach(([code, data], index) => {
+        sortedColors.forEach(([idx, data], index) => {
           // 固定每排10个，最多两排
           const row = Math.floor(index / itemsPerRow);
           const col = index % itemsPerRow;
@@ -3598,7 +3485,6 @@ async function generateBeadPatternHD(
           
           const itemStartX = legendStartX + col * actualItemWidth;
           const y = legendY + legendPadding + 40 * scale + row * itemHeight;
-          const rgb = hexToRgb(data.color.hex);
           
           // Draw color swatch
           ctx.fillStyle = data.color.hex;
@@ -3607,12 +3493,12 @@ async function generateBeadPatternHD(
           ctx.lineWidth = 1;
           ctx.strokeRect(itemStartX, y - 12 * scale, colorBoxSize, colorBoxSize);
           
-          // Draw color code on the swatch
-          const textColor = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+          // Draw color code on the swatch (使用预先计算的 RGB 值计算亮度)
+          const textColor = (data.color.r * 299 + data.color.g * 587 + data.color.b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
           ctx.fillStyle = textColor;
           ctx.textAlign = 'center';
           ctx.font = `bold ${Math.floor(scale * 11)}px Arial`;
-          ctx.fillText(code, itemStartX + colorBoxSize / 2, y);
+          ctx.fillText(data.color.colorCode, itemStartX + colorBoxSize / 2, y);
           
           // Draw count on the right
           ctx.fillStyle = '#000000';
@@ -3623,8 +3509,9 @@ async function generateBeadPatternHD(
       }
 
       // Build legend with counts
-      const legend = sortedColors.map(([code, data]) => ({
-        ...data.color,
+      const legend = sortedColors.map(([idx, data]) => ({
+        code: data.color.colorCode,
+        hex: data.color.hex,
         count: data.count
       }));
 
