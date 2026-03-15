@@ -975,7 +975,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
               </p>
             </div>
 
-            <div className="flex items-end">
+            <div className="flex flex-col gap-3">
               <Button
                 onClick={detectGridAndProcess}
                 disabled={!uploadedImage || isProcessing}
@@ -984,6 +984,17 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
               >
                 {isProcessing ? '处理中...' : '生成拼豆图纸'}
               </Button>
+              {pixelGrid && (
+                <Button
+                  onClick={exportImage}
+                  className="w-full"
+                  variant="outline"
+                  size="lg"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  导出图片
+                </Button>
+              )}
             </div>
           </div>
         </Card>
