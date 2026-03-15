@@ -555,7 +555,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const totalBeads = colorList.reduce((sum, item) => sum + item.count, 0);
 
     const legendPadding = 40;
-    const itemHeight = 50;
+    const itemHeight = 35;
     const minItemWidth = 100; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
     
@@ -688,19 +688,17 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         const x = legendPadding + col * itemWidth;
         const y = legendY + legendPadding + 40 + row * itemHeight;
 
+        // 绘制色块
         ctx.fillStyle = item.hex;
-        ctx.fillRect(x, y - 15, 30, 30);
+        ctx.fillRect(x, y - 12, 24, 24);
         ctx.strokeStyle = '#CCCCCC';
-        ctx.strokeRect(x, y - 15, 30, 30);
+        ctx.strokeRect(x, y - 12, 24, 24);
 
+        // 色号和数量在同一横排显示
         ctx.fillStyle = '#000000';
-        ctx.font = 'bold 14px Arial';
+        ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(item.colorCode, x + 40, y);
-
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${item.count}个`, x + itemWidth - 10, y + 8);
+        ctx.fillText(`${item.colorCode} (${item.count})`, x + 30, y + 2);
       });
     }
   };
@@ -728,7 +726,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     const totalBeads = colorList.reduce((sum, item) => sum + item.count, 0);
 
     const legendPadding = 40;
-    const itemHeight = 50;
+    const itemHeight = 35;
     const minItemWidth = 100; // 最小图例项宽度，确保不重叠
     const itemsPerRow = 10; // 固定每行10个
     
@@ -841,19 +839,17 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         const x = legendPadding + col * itemWidth;
         const y = legendY + legendPadding + 40 + row * itemHeight;
 
+        // 绘制色块
         ctx.fillStyle = item.hex;
-        ctx.fillRect(x, y - 15, 30, 30);
+        ctx.fillRect(x, y - 12, 24, 24);
         ctx.strokeStyle = '#CCCCCC';
-        ctx.strokeRect(x, y - 15, 30, 30);
+        ctx.strokeRect(x, y - 12, 24, 24);
 
+        // 色号和数量在同一横排显示
         ctx.fillStyle = '#000000';
-        ctx.font = 'bold 14px Arial';
+        ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(item.colorCode, x + 40, y);
-
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${item.count}个`, x + itemWidth - 10, y + 8);
+        ctx.fillText(`${item.colorCode} (${item.count})`, x + 30, y + 2);
       });
     }
   };
