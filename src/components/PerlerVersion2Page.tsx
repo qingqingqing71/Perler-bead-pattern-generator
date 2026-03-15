@@ -40,6 +40,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
   const [pixelGrid, setPixelGrid] = useState<PixelGrid | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const effectCanvasRef = useRef<HTMLCanvasElement>(null); // 拼豆效果预览 canvas
   const [showGridLines, setShowGridLines] = useState(true);
   const [showColorCodes, setShowColorCodes] = useState(true);
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced');
@@ -671,6 +672,148 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
     }
   };
 
+  // 渲染拼豆效果预览（不带色号标注）
+  const renderBeadEffect = () => {
+    if (!pixelGrid || !effectCanvasRef.current || !uploadedImage) return;
+
+    const canvas = effectCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const baseCellSize = 20;
+    const labelPadding = 30;
+
+    // Calculate legend dimensions
+    const colorList = Array.from(colorStats.entries())
+      .map(([index, count]) => ({
+        colorCode: beadColors[index]?.colorCode || '',
+        hex: beadColors[index]?.hex || '#FFFFFF',
+        count
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const totalBeads = colorList.reduce((sum, item) => sum + item.count, 0);
+
+    const legendPadding = 40;
+    const itemHeight = 50;
+    const itemWidth = 200;
+    const itemsPerRow = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemWidth);
+    const legendRows = Math.ceil(colorList.length / itemsPerRow);
+    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
+
+    canvas.width = pixelGrid.width * baseCellSize + labelPadding * 2;
+    canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
+
+    const cellSize = baseCellSize;
+    const offsetX = labelPadding;
+    const offsetY = labelPadding;
+    const patternWidth = pixelGrid.width * baseCellSize;
+    const patternHeight = pixelGrid.height * baseCellSize;
+
+    // Fill white background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw grid labels on all four sides
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Top column numbers
+    for (let x = 0; x < pixelGrid.width; x++) {
+      ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY - cellSize / 2);
+    }
+
+    // Left row numbers
+    ctx.textAlign = 'right';
+    for (let y = 0; y < pixelGrid.height; y++) {
+      ctx.fillText(`${y + 1}`, offsetX - 5, offsetY + y * cellSize + cellSize / 2);
+    }
+
+    // Right row numbers
+    ctx.textAlign = 'left';
+    for (let y = 0; y < pixelGrid.height; y++) {
+      ctx.fillText(`${y + 1}`, offsetX + patternWidth + 5, offsetY + y * cellSize + cellSize / 2);
+    }
+
+    // Bottom column numbers
+    ctx.textAlign = 'center';
+    for (let x = 0; x < pixelGrid.width; x++) {
+      ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY + patternHeight + cellSize / 2);
+    }
+
+    // Draw bead cells (不带色号标注)
+    for (let y = 0; y < pixelGrid.height; y++) {
+      for (let x = 0; x < pixelGrid.width; x++) {
+        const colorIndex = pixelGrid.pixels[y][x];
+        const beadColor = pixelGrid.gridColors?.[y][x];
+
+        if (colorIndex >= 0 && beadColor) {
+          ctx.fillStyle = beadColor.hex;
+          ctx.fillRect(offsetX + x * cellSize, offsetY + y * cellSize, cellSize, cellSize);
+        } else {
+          ctx.clearRect(offsetX + x * cellSize, offsetY + y * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+
+    // Draw grid lines
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x <= pixelGrid.width; x++) {
+      ctx.beginPath();
+      ctx.moveTo(offsetX + x * cellSize, offsetY);
+      ctx.lineTo(offsetX + x * cellSize, offsetY + patternHeight);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y <= pixelGrid.height; y++) {
+      ctx.beginPath();
+      ctx.moveTo(offsetX, offsetY + y * cellSize);
+      ctx.lineTo(offsetX + pixelGrid.width * cellSize, offsetY + y * cellSize);
+      ctx.stroke();
+    }
+
+    // 不绘制色号文字 - 这是与 renderBeadGrid 的区别
+
+    // Draw legend area
+    if (colorList.length > 0) {
+      const legendY = offsetY + patternHeight + labelPadding;
+
+      ctx.fillStyle = '#F8F9FA';
+      ctx.fillRect(0, legendY, canvas.width, legendHeight);
+
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 35);
+
+      colorList.forEach((item, index) => {
+        const row = Math.floor(index / itemsPerRow);
+        const col = index % itemsPerRow;
+
+        const x = offsetX + legendPadding + col * itemWidth;
+        const y = legendY + legendPadding + 40 + row * itemHeight;
+
+        ctx.fillStyle = item.hex;
+        ctx.fillRect(x, y - 15, 30, 30);
+        ctx.strokeStyle = '#CCCCCC';
+        ctx.strokeRect(x, y - 15, 30, 30);
+
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(item.colorCode, x + 40, y);
+
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${item.count}个`, x + itemWidth - 10, y + 8);
+      });
+    }
+  };
+
   const exportImage = () => {
     if (!canvasRef.current || !pixelGrid || colorStats.size === 0) return;
 
@@ -704,6 +847,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
 
   useEffect(() => {
     renderBeadGrid();
+    renderBeadEffect();
   }, [pixelGrid, showGridLines, showColorCodes]);
 
   return (
@@ -732,258 +876,267 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Panel - Upload and Settings */}
-          <div className="space-y-6">
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">上传图片</h2>
-
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                  id="image-upload-v2"
+        {/* 设置 - 放在使用说明下方 */}
+        <Card className="mb-6 p-6">
+          <h2 className="text-xl font-semibold mb-4">设置</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <Label>网格尺寸（正方形）</Label>
+              <div className="mt-2">
+                <Label htmlFor="grid-width-v2" className="text-sm text-gray-600">
+                  尺寸（宽=高）
+                </Label>
+                <Input
+                  id="grid-width-v2"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={gridWidth === 0 ? '' : gridWidth}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      setGridWidth(0);
+                      setGridHeight(0);
+                      return;
+                    }
+                    const numValue = Number(value);
+                    if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {
+                      setGridWidth(numValue);
+                      setGridHeight(numValue);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const value = e.target.value;
+                    const numValue = Number(value);
+                    if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 100) {
+                      setGridWidth(29);
+                      setGridHeight(29);
+                    }
+                  }}
+                  className="mt-1"
                 />
-                <label
-                  htmlFor="image-upload-v2"
-                  className="cursor-pointer flex flex-col items-center gap-3"
-                >
-                  <Upload className="w-12 h-12 text-gray-400" />
-                  <span className="text-sm text-gray-600">
-                    点击上传或拖拽图片到这里
+              </div>
+              {/* Quick select buttons */}
+              <div className="mt-3">
+                <p className="text-xs text-gray-500 mb-2">快速选择常用尺寸：</p>
+                <div className="flex flex-wrap gap-2">
+                  {[25, 29, 52, 100].map((size) => (
+                    <Button
+                      key={size}
+                      variant={gridWidth === size ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        setGridWidth(size);
+                        setGridHeight(size);
+                      }}
+                    >
+                      {size}×{size}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                网格必须为正方形，输入任意尺寸（1-100），宽和高自动保持一致
+              </p>
+            </div>
+
+            <div>
+              <Label>颜色匹配准确度</Label>
+              <div className="mt-2 space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="color-accuracy-v2"
+                    value="enhanced"
+                    checked={colorMatchAccuracy === 'enhanced'}
+                    onChange={(e) => setColorMatchAccuracy(e.target.value as 'standard' | 'enhanced')}
+                    className="text-purple-600"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium">专业模式</span> - Lab色彩空间 + CIEDE2000算法，最准确
+                  </span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="color-accuracy-v2"
+                    value="standard"
+                    checked={colorMatchAccuracy === 'standard'}
+                    onChange={(e) => setColorMatchAccuracy(e.target.value as 'standard' | 'enhanced')}
+                    className="text-purple-600"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium">标准模式</span> - 感知加权RGB距离
                   </span>
                 </label>
               </div>
+              <p className="text-xs text-gray-500 mt-2">
+                专业模式使用工业标准的CIEDE2000算法。
+              </p>
+            </div>
 
-              {uploadedImage && (
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600 mb-2">原始图片预览:</p>
-                  <img
-                    src={uploadedImage}
-                    alt="Uploaded"
-                    className="max-w-full h-auto rounded-lg border"
-                  />
-                </div>
-              )}
-            </Card>
-
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">设置</h2>
-
-              <div className="space-y-4">
-                <div>
-                  <Label>网格尺寸（正方形）</Label>
-                  <div className="mt-2">
-                    <Label htmlFor="grid-width-v2" className="text-sm text-gray-600">
-                      尺寸（宽=高）
-                    </Label>
-                    <Input
-                      id="grid-width-v2"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={gridWidth === 0 ? '' : gridWidth}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === '') {
-                          setGridWidth(0);
-                          setGridHeight(0);
-                          return;
-                        }
-                        const numValue = Number(value);
-                        if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {
-                          setGridWidth(numValue);
-                          setGridHeight(numValue);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const value = e.target.value;
-                        const numValue = Number(value);
-                        if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 100) {
-                          setGridWidth(29);
-                          setGridHeight(29);
-                        }
-                      }}
-                      className="mt-1"
-                    />
-                  </div>
-
-                  {/* Quick select buttons */}
-                  <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">快速选择常用尺寸：</p>
-                    <div className="flex flex-wrap gap-2">
-                      {[25, 29, 52, 100].map((size) => (
-                        <Button
-                          key={size}
-                          variant={gridWidth === size ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => {
-                            setGridWidth(size);
-                            setGridHeight(size);
-                          }}
-                        >
-                          {size}×{size}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-gray-500 mt-2">
-                    网格必须为正方形，输入任意尺寸（1-100），宽和高自动保持一致
-                  </p>
-                </div>
-
-                <div>
-                  <Label>颜色匹配准确度</Label>
-                  <div className="mt-2 space-y-2">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="color-accuracy-v2"
-                        value="enhanced"
-                        checked={colorMatchAccuracy === 'enhanced'}
-                        onChange={(e) => setColorMatchAccuracy(e.target.value as 'standard' | 'enhanced')}
-                        className="text-purple-600"
-                      />
-                      <span className="text-sm">
-                        <span className="font-medium">专业模式</span> - Lab色彩空间 + CIEDE2000算法，最准确
-                      </span>
-                    </label>
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="color-accuracy-v2"
-                        value="standard"
-                        checked={colorMatchAccuracy === 'standard'}
-                        onChange={(e) => setColorMatchAccuracy(e.target.value as 'standard' | 'enhanced')}
-                        className="text-purple-600"
-                      />
-                      <span className="text-sm">
-                        <span className="font-medium">标准模式</span> - 感知加权RGB距离
-                      </span>
-                    </label>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    专业模式使用工业标准的CIEDE2000算法。每个网格使用中心像素颜色，不使用平均值。
-                  </p>
-                </div>
-
-                <Button
-                  onClick={detectGridAndProcess}
-                  disabled={!uploadedImage || isProcessing}
-                  className="w-full"
-                  size="lg"
-                >
-                  {isProcessing ? '处理中...' : '生成拼豆图纸'}
-                </Button>
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">视图控制</h2>
-
-              <div className="space-y-4">
-                <Label>显示选项</Label>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Grid3x3 className="w-4 h-4" />
-                    <span className="text-sm">显示网格线</span>
-                  </div>
-                  <Switch
-                    checked={showGridLines}
-                    onCheckedChange={setShowGridLines}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Type className="w-4 h-4" />
-                    <span className="text-sm">显示色号</span>
-                  </div>
-                  <Switch
-                    checked={showColorCodes}
-                    onCheckedChange={setShowColorCodes}
-                  />
-                </div>
-              </div>
-            </Card>
+            <div className="flex items-end">
+              <Button
+                onClick={detectGridAndProcess}
+                disabled={!uploadedImage || isProcessing}
+                className="w-full"
+                size="lg"
+              >
+                {isProcessing ? '处理中...' : '生成拼豆图纸'}
+              </Button>
+            </div>
           </div>
+        </Card>
 
-          {/* Right Panel - Preview and Export */}
-          <div className="space-y-6">
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">拼豆图纸预览</h2>
-
-              <div className="border rounded-lg bg-white p-4">
-                {pixelGrid ? (
-                  <canvas
-                    ref={canvasRef}
-                    className="w-full h-auto"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-64 text-gray-400">
-                    <p>上传图片并点击"生成拼豆图纸"</p>
-                  </div>
-                )}
+        {/* 上传图片和拼豆效果预览 - 并排显示 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* 上传图片 */}
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4">上传图片</h2>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+                id="image-upload-v2"
+              />
+              <label
+                htmlFor="image-upload-v2"
+                className="cursor-pointer flex flex-col items-center gap-3"
+              >
+                <Upload className="w-12 h-12 text-gray-400" />
+                <span className="text-sm text-gray-600">
+                  点击上传或拖拽图片到这里
+                </span>
+              </label>
+            </div>
+            {uploadedImage && (
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 mb-2">原始图片预览:</p>
+                <img
+                  src={uploadedImage}
+                  alt="Uploaded"
+                  className="max-w-full h-auto rounded-lg border"
+                />
               </div>
+            )}
+          </Card>
 
-              {pixelGrid && (
-                <div className="mt-4 flex gap-3">
-                  <Button
-                    onClick={exportImage}
-                    className="flex-1"
-                    variant="default"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    导出图片
-                  </Button>
-                  <Button
-                    onClick={exportColorList}
-                    className="flex-1"
-                    variant="outline"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    导出色号表
-                  </Button>
+          {/* 拼豆效果预览 */}
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4">拼豆效果预览</h2>
+            <div className="border rounded-lg bg-white p-4">
+              {pixelGrid ? (
+                <canvas
+                  ref={effectCanvasRef}
+                  className="w-full h-auto"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-64 text-gray-400">
+                  <p>上传图片并点击"生成拼豆图纸"</p>
                 </div>
               )}
-            </Card>
+            </div>
+          </Card>
+        </div>
 
-            {pixelGrid && (
-              <Card className="p-6">
-                <h2 className="text-xl font-semibold mb-4">图纸信息</h2>
+        {/* 视图控制 */}
+        <Card className="mb-6 p-6">
+          <h2 className="text-xl font-semibold mb-4">视图控制</h2>
+          <div className="flex flex-wrap gap-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Grid3x3 className="w-4 h-4" />
+                <span className="text-sm">显示网格线</span>
+              </div>
+              <Switch
+                checked={showGridLines}
+                onCheckedChange={setShowGridLines}
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">网格尺寸</p>
-                    <p className="font-semibold">
-                      {pixelGrid.width} x {pixelGrid.height}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">拼豆数量</p>
-                    <p className="font-semibold">
-                      {pixelGrid.pixels.flat().filter(c => c >= 0).length}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">使用颜色数</p>
-                    <p className="font-semibold">
-                      {new Set(pixelGrid.pixels.flat()).size - 1}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">可用色号</p>
-                    <p className="font-semibold">{beadColors.length}</p>
-                  </div>
-                </div>
-              </Card>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Type className="w-4 h-4" />
+                <span className="text-sm">显示色号</span>
+              </div>
+              <Switch
+                checked={showColorCodes}
+                onCheckedChange={setShowColorCodes}
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* 拼豆图纸预览 */}
+        <Card className="mb-6 p-6">
+          <h2 className="text-xl font-semibold mb-4">拼豆图纸预览</h2>
+          <div className="border rounded-lg bg-white p-4">
+            {pixelGrid ? (
+              <canvas
+                ref={canvasRef}
+                className="w-full h-auto"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-64 text-gray-400">
+                <p>上传图片并点击"生成拼豆图纸"</p>
+              </div>
             )}
           </div>
-        </div>
+
+          {pixelGrid && (
+            <div className="mt-4 flex gap-3">
+              <Button
+                onClick={exportImage}
+                className="flex-1"
+                variant="default"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                导出图片
+              </Button>
+              <Button
+                onClick={exportColorList}
+                className="flex-1"
+                variant="outline"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                导出色号表
+              </Button>
+            </div>
+          )}
+        </Card>
+
+        {/* 图纸信息 */}
+        {pixelGrid && (
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold mb-4">图纸信息</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-gray-600">网格尺寸</p>
+                <p className="font-semibold">
+                  {pixelGrid.width} x {pixelGrid.height}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">拼豆数量</p>
+                <p className="font-semibold">
+                  {pixelGrid.pixels.flat().filter(c => c >= 0).length}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">使用颜色数</p>
+                <p className="font-semibold">
+                  {new Set(pixelGrid.pixels.flat()).size - 1}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">可用色号</p>
+                <p className="font-semibold">{beadColors.length}</p>
+              </div>
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );
