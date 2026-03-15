@@ -80,7 +80,7 @@ export default function Home() {
   const [effectiveGridCols, setEffectiveGridCols] = useState(25); // 实际使用的网格列数（考虑放大倍数）
   const [effectiveGridRows, setEffectiveGridRows] = useState(25); // 实际使用的网格行数（考虑放大倍数）
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced'); // 颜色匹配精度
-  const [samplingMode, setSamplingMode] = useState<SamplingMode>('multi5'); // 采样模式：单点/5点/9点
+  const [samplingMode, setSamplingMode] = useState<SamplingMode>('single'); // 采样模式：单点/5点/9点（默认单点）
   const [useAnimeImage, setUseAnimeImage] = useState(false);
   const [isAlreadyAnime, setIsAlreadyAnime] = useState(false); // 用户标记原图已是动漫风格
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 2>(1); // 放大倍数：1倍或2倍

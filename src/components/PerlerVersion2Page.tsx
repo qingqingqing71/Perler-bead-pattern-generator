@@ -722,11 +722,12 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
         <Card className="mb-6 p-6 bg-blue-50 border-blue-200">
           <h2 className="text-lg font-semibold mb-3 text-blue-900">📖 使用说明</h2>
           <div className="space-y-2 text-sm text-blue-800">
-            <p><strong>1. 上传图片：</strong>点击或拖拽上传您想要转换的像素风格图片</p>
-            <p><strong>2. 设置网格尺寸：</strong>设置网格大小（必须为正方形，如 29x29、52x52）</p>
-            <p><strong>3. 选择匹配模式：</strong>专业模式使用 Lab 色彩空间，匹配更准确</p>
-            <p><strong>4. 生成图纸：</strong>点击"生成拼豆图纸"按钮，自动匹配拼豆色号</p>
-            <p><strong>5. 预览与导出：</strong>预览图纸包含色号图例，支持导出高清 PNG 和色号统计表</p>
+            <p><strong>1. 选择采样方式：</strong>单点采样取中心点颜色，5点/9点采样取多点平均值，适合色彩渐变图片</p>
+            <p><strong>2. 上传图片：</strong>点击或拖拽上传您想要转换的图片</p>
+            <p><strong>3. 设置网格尺寸：</strong>设置网格大小（如 29x29、52x52）</p>
+            <p><strong>4. 选择匹配模式：</strong>专业模式使用 Lab 色彩空间，匹配更准确</p>
+            <p><strong>5. 生成图纸：</strong>点击"生成拼豆图纸"按钮，自动匹配拼豆色号</p>
+            <p><strong>6. 导出结果：</strong>支持导出高清 PNG 图纸和色号统计表</p>
             <p className="text-xs text-blue-600 mt-2">💡 提示：建议上传对比度高、色彩清晰的图片，效果更佳</p>
           </div>
         </Card>
