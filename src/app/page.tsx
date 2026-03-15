@@ -2879,8 +2879,10 @@ async function generateBeadPatternHD(
         }
       }
       
-      // Step 4: Limit to max 30 colors
-      const MAX_COLORS = 30;
+      // Step 4: Limit colors based on sampling mode
+      // perler_VERSION2 style: single point sampling uses max 20 colors
+      // Multi-point sampling uses max 30 colors for better color accuracy
+      const MAX_COLORS = samplingMode === 'single' ? 20 : 30;
       let selectedColors: MardColor[];
       
       if (colorStats.size > MAX_COLORS) {
