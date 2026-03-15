@@ -895,16 +895,19 @@ export default function Home() {
 
                   {/* Download and Reset */}
                   <div className="flex gap-3">
-                    <Button
-                      onClick={handleDownload}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      下载图片
-                    </Button>
+                    {beadPatternImage && (
+                      <Button
+                        onClick={handleDownloadBeadPattern}
+                        className="flex-1 bg-orange-600 hover:bg-orange-700"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        下载高清拼豆图纸
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       onClick={handleReset}
+                      className={beadPatternImage ? "" : "flex-1"}
                     >
                       重新开始
                     </Button>
@@ -1055,23 +1058,13 @@ export default function Home() {
         {beadPatternImage && (
           <Card className="mt-6 overflow-hidden">
             <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Beaker className="w-5 h-5 text-orange-600" />
-                  拼豆图纸
-                  <span className="text-sm font-normal text-slate-500 ml-2">
-                    ({effectiveGridCols}×{effectiveGridRows} 格)
-                  </span>
-                </h2>
-                <Button
-                  onClick={handleDownloadBeadPattern}
-                  size="sm"
-                  className="bg-orange-600 hover:bg-orange-700"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  下载高清图纸
-                </Button>
-              </div>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Beaker className="w-5 h-5 text-orange-600" />
+                拼豆图纸
+                <span className="text-sm font-normal text-slate-500 ml-2">
+                  ({effectiveGridCols}×{effectiveGridRows} 格)
+                </span>
+              </h2>
 
               <div 
                 className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex items-center justify-center"
