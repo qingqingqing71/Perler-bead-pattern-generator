@@ -437,8 +437,8 @@ export default function Home() {
     setError(null);
 
     try {
-      // 单点采样时使用 perler_VERSION2 的处理方式
-      if (samplingMode === 'single') {
+      // 单点和5点采样都使用 V2 的处理方式
+      if (samplingMode === 'single' || samplingMode === 'multi5') {
         // 生成不带色号的图纸用于显示在"处理结果"窗口
         const displayResult = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, beadColors);
         setFinalImage(displayResult.image);
@@ -449,7 +449,7 @@ export default function Home() {
         
         setBeadPatternLegend(displayResult.legend);
       } else {
-        // 多点采样时使用原有的 HD 处理方式
+        // 9点采样时使用 HD 处理方式
         const displayResult = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 1, false, colorMatchAccuracy, samplingMode, beadColors);
         setFinalImage(displayResult.image);
         
@@ -497,8 +497,8 @@ export default function Home() {
     try {
       let result;
       
-      // 单点采样时使用 perler_VERSION2 的处理方式
-      if (samplingMode === 'single') {
+      // 单点和5点采样都使用 V2 的处理方式
+      if (samplingMode === 'single' || samplingMode === 'multi5') {
         result = await generateBeadPatternV2(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, beadColors);
       } else {
         result = await generateBeadPatternHD(pixelatedSubject, effectiveGridCols, effectiveGridRows, 3, true, colorMatchAccuracy, samplingMode, beadColors);
