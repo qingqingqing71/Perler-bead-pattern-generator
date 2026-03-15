@@ -27,8 +27,8 @@ interface PixelGrid {
 
 interface PerlerVersion2PageProps {
   onBack?: () => void;
-  samplingMode?: 'single' | 'multi5';  // 采样模式
-  onSamplingModeChange?: (mode: 'single' | 'multi5') => void;  // 切换采样模式的回调
+  samplingMode?: 'single' | 'multi5' | 'multi9';  // 采样模式
+  onSamplingModeChange?: (mode: 'single' | 'multi5' | 'multi9') => void;  // 切换采样模式的回调
 }
 
 export default function PerlerVersion2Page({ onBack, samplingMode = 'single', onSamplingModeChange }: PerlerVersion2PageProps) {
@@ -310,7 +310,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
             g = color.g;
             b = color.b;
             a = color.a;
-          } else {
+          } else if (samplingMode === 'multi5') {
             // 5点采样：中心 + 四个象限中心（均匀分布）
             const cellW = endX - startX;
             const cellH = endY - startY;
@@ -323,6 +323,50 @@ export default function PerlerVersion2Page({ onBack, samplingMode = 'single', on
               { x: Math.floor(startX + cellW * 0.25), y: Math.floor(startY + cellH * 0.75) },  // 左下象限中心
               { x: Math.floor(startX + cellW * 0.75), y: Math.floor(startY + cellH * 0.75) }   // 右下象限中心
             ];
+
+            let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
+            let hasValidPixel = false;
+            
+            points.forEach(p => {
+              const color = getPixelColor(p.x, p.y);
+              // 只计算非透明点（a >= 128）
+              if (color.a >= 128) {
+                sumR += color.r;
+                sumG += color.g;
+                sumB += color.b;
+                validCount++;
+                hasValidPixel = true;
+              }
+            });
+            
+            if (hasValidPixel) {
+              // 有有效的像素点，取平均值
+              r = Math.round(sumR / validCount);
+              g = Math.round(sumG / validCount);
+              b = Math.round(sumB / validCount);
+              a = 255;  // 有有效像素，标记为不透明
+            } else {
+              // 所有点都是透明的
+              r = 255;
+              g = 255;
+              b = 255;
+              a = 0;
+            }
+          } else {
+            // 9点采样：3×3网格（均匀分布）
+            const cellW = endX - startX;
+            const cellH = endY - startY;
+            
+            // 9点位置：3×3网格
+            const points: { x: number; y: number }[] = [];
+            for (let dy = 0; dy < 3; dy++) {
+              for (let dx = 0; dx < 3; dx++) {
+                points.push({
+                  x: Math.floor(startX + cellW * (dx + 0.5) / 3),
+                  y: Math.floor(startY + cellH * (dy + 0.5) / 3)
+                });
+              }
+            }
 
             let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
             let hasValidPixel = false;
