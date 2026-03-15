@@ -256,11 +256,25 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     setIsProcessing(true);
 
     const img = new Image();
-    img.onload = () => {
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = async () => {
+      // 确保图片完全解码（重要：解决手机浏览器颜色不准确问题）
+      try {
+        await img.decode();
+      } catch (e) {
+        console.warn('Image decode warning:', e);
+      }
+      
       // Step 1: Create square canvas (based on original image size)
-      const squareSize = Math.max(img.width, img.height);
+      // 限制最大尺寸为 2048px，避免手机浏览器内存问题
+      const maxSize = 2048;
+      let squareSize = Math.max(img.width, img.height);
+      const scale = squareSize > maxSize ? maxSize / squareSize : 1;
+      squareSize = Math.floor(squareSize * scale);
+      
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) {
         setIsProcessing(false);
         return;
@@ -273,10 +287,10 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Calculate image size with upscale factor
+      // Calculate image size with upscale factor and scale
       // 1.2倍：在相同网格画幅内，图片放大1.2倍（边缘会被裁剪）
-      const drawWidth = img.width * upscaleFactor;
-      const drawHeight = img.height * upscaleFactor;
+      const drawWidth = img.width * upscaleFactor * scale;
+      const drawHeight = img.height * upscaleFactor * scale;
       
       // Draw image centered
       const offsetX = (squareSize - drawWidth) / 2;
@@ -284,9 +298,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-
-
-
 
       // Get image data
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
