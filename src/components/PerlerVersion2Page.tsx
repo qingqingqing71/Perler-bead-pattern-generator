@@ -51,7 +51,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   const [pixelGrid, setPixelGrid] = useState<PixelGrid | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const effectCanvasRef = useRef<HTMLCanvasElement>(null); // 拼豆效果预览 canvas
   const [showGridLines, setShowGridLines] = useState(true);
   const [showColorCodes, setShowColorCodes] = useState(true);
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced');
@@ -694,148 +693,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     }
   };
 
-  // 渲染拼豆效果预览（不带色号标注）
-  const renderBeadEffect = () => {
-    if (!pixelGrid || !effectCanvasRef.current || !uploadedImage) return;
-
-    const canvas = effectCanvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const baseCellSize = 20;
-    const labelPadding = 30;
-
-    // Calculate legend dimensions
-    const colorList = Array.from(colorStats.entries())
-      .map(([index, count]) => ({
-        colorCode: beadColors[index]?.colorCode || '',
-        hex: beadColors[index]?.hex || '#FFFFFF',
-        count
-      }))
-      .sort((a, b) => b.count - a.count);
-
-    const totalBeads = colorList.reduce((sum, item) => sum + item.count, 0);
-
-    const legendPadding = 40;
-    const itemHeight = 50;
-    const itemsPerRow = 10; // 固定每行10个
-    const itemWidth = Math.floor((pixelGrid.width * baseCellSize - legendPadding * 2) / itemsPerRow);
-    const legendRows = Math.ceil(colorList.length / itemsPerRow);
-    const legendHeight = legendPadding * 2 + legendRows * itemHeight + 60;
-
-    canvas.width = pixelGrid.width * baseCellSize + labelPadding * 2;
-    canvas.height = pixelGrid.height * baseCellSize + labelPadding * 2 + legendHeight;
-
-    const cellSize = baseCellSize;
-    const offsetX = labelPadding;
-    const offsetY = labelPadding;
-    const patternWidth = pixelGrid.width * baseCellSize;
-    const patternHeight = pixelGrid.height * baseCellSize;
-
-    // Fill white background
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw grid labels on all four sides
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Top column numbers
-    for (let x = 0; x < pixelGrid.width; x++) {
-      ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY - cellSize / 2);
-    }
-
-    // Left row numbers
-    ctx.textAlign = 'right';
-    for (let y = 0; y < pixelGrid.height; y++) {
-      ctx.fillText(`${y + 1}`, offsetX - 5, offsetY + y * cellSize + cellSize / 2);
-    }
-
-    // Right row numbers
-    ctx.textAlign = 'left';
-    for (let y = 0; y < pixelGrid.height; y++) {
-      ctx.fillText(`${y + 1}`, offsetX + patternWidth + 5, offsetY + y * cellSize + cellSize / 2);
-    }
-
-    // Bottom column numbers
-    ctx.textAlign = 'center';
-    for (let x = 0; x < pixelGrid.width; x++) {
-      ctx.fillText(`${x + 1}`, offsetX + x * cellSize + cellSize / 2, offsetY + patternHeight + cellSize / 2);
-    }
-
-    // Draw bead cells (不带色号标注)
-    for (let y = 0; y < pixelGrid.height; y++) {
-      for (let x = 0; x < pixelGrid.width; x++) {
-        const colorIndex = pixelGrid.pixels[y][x];
-        const beadColor = pixelGrid.gridColors?.[y][x];
-
-        if (colorIndex >= 0 && beadColor) {
-          ctx.fillStyle = beadColor.hex;
-          ctx.fillRect(offsetX + x * cellSize, offsetY + y * cellSize, cellSize, cellSize);
-        } else {
-          ctx.clearRect(offsetX + x * cellSize, offsetY + y * cellSize, cellSize, cellSize);
-        }
-      }
-    }
-
-    // Draw grid lines
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1;
-
-    for (let x = 0; x <= pixelGrid.width; x++) {
-      ctx.beginPath();
-      ctx.moveTo(offsetX + x * cellSize, offsetY);
-      ctx.lineTo(offsetX + x * cellSize, offsetY + patternHeight);
-      ctx.stroke();
-    }
-
-    for (let y = 0; y <= pixelGrid.height; y++) {
-      ctx.beginPath();
-      ctx.moveTo(offsetX, offsetY + y * cellSize);
-      ctx.lineTo(offsetX + pixelGrid.width * cellSize, offsetY + y * cellSize);
-      ctx.stroke();
-    }
-
-    // 不绘制色号文字 - 这是与 renderBeadGrid 的区别
-
-    // Draw legend area
-    if (colorList.length > 0) {
-      const legendY = offsetY + patternHeight + labelPadding;
-
-      ctx.fillStyle = '#F8F9FA';
-      ctx.fillRect(0, legendY, canvas.width, legendHeight);
-
-      ctx.fillStyle = '#000000';
-      ctx.font = 'bold 20px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(`拼豆色号图例 (${colorList.length}种色号, 共${totalBeads}个拼豆)`, canvas.width / 2, legendY + 35);
-
-      colorList.forEach((item, index) => {
-        const row = Math.floor(index / itemsPerRow);
-        const col = index % itemsPerRow;
-
-        const x = offsetX + legendPadding + col * itemWidth;
-        const y = legendY + legendPadding + 40 + row * itemHeight;
-
-        ctx.fillStyle = item.hex;
-        ctx.fillRect(x, y - 15, 30, 30);
-        ctx.strokeStyle = '#CCCCCC';
-        ctx.strokeRect(x, y - 15, 30, 30);
-
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(item.colorCode, x + 40, y);
-
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${item.count}个`, x + itemWidth - 10, y + 8);
-      });
-    }
-  };
-
   const exportImage = () => {
     if (!canvasRef.current || !pixelGrid || colorStats.size === 0) return;
 
@@ -847,7 +704,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
   useEffect(() => {
     renderBeadGrid();
-    renderBeadEffect();
   }, [pixelGrid, showGridLines, showColorCodes]);
 
   return (
@@ -1081,58 +937,38 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
           </div>
         </Card>
 
-        {/* 上传图片和拼豆效果预览 - 并排显示 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* 上传图片 */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">上传图片</h2>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-                id="image-upload-v2"
+        {/* 上传图片 */}
+        <Card className="mb-6 p-6">
+          <h2 className="text-xl font-semibold mb-4">上传图片</h2>
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+              id="image-upload-v2"
+            />
+            <label
+              htmlFor="image-upload-v2"
+              className="cursor-pointer flex flex-col items-center gap-3"
+            >
+              <Upload className="w-12 h-12 text-gray-400" />
+              <span className="text-sm text-gray-600">
+                点击上传或拖拽图片到这里
+              </span>
+            </label>
+          </div>
+          {uploadedImage && (
+            <div className="mt-4">
+              <p className="text-sm text-gray-600 mb-2">原始图片预览:</p>
+              <img
+                src={uploadedImage}
+                alt="Uploaded"
+                className="max-w-full h-auto rounded-lg border"
               />
-              <label
-                htmlFor="image-upload-v2"
-                className="cursor-pointer flex flex-col items-center gap-3"
-              >
-                <Upload className="w-12 h-12 text-gray-400" />
-                <span className="text-sm text-gray-600">
-                  点击上传或拖拽图片到这里
-                </span>
-              </label>
             </div>
-            {uploadedImage && (
-              <div className="mt-4">
-                <p className="text-sm text-gray-600 mb-2">原始图片预览:</p>
-                <img
-                  src={uploadedImage}
-                  alt="Uploaded"
-                  className="max-w-full h-auto rounded-lg border"
-                />
-              </div>
-            )}
-          </Card>
-
-          {/* 拼豆效果预览 */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">拼豆效果预览</h2>
-            <div className="border rounded-lg bg-white p-4">
-              {pixelGrid ? (
-                <canvas
-                  ref={effectCanvasRef}
-                  className="w-full h-auto"
-                />
-              ) : (
-                <div className="flex items-center justify-center h-64 text-gray-400">
-                  <p>上传图片并点击"生成拼豆图纸"</p>
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
+          )}
+        </Card>
 
         {/* 视图控制 */}
         <Card className="mb-6 p-6">
