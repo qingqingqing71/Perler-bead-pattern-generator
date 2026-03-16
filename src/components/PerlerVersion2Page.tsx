@@ -532,84 +532,30 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         });
       });
 
-      // Process colors based on sampling mode
+      // Process colors based on sampling mode - 所有采样模式都使用颜色聚类合并
       const MAX_COLORS = 30;
-      let finalPixels: number[][];
-      let finalStats: Map<number, number>;
-
-      if (samplingMode === 'single' || samplingMode === 'multi5') {
-        // 单点/5点采样：使用颜色聚类合并，减少杂色
-        const colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
-        
-        // 应用颜色映射
-        finalPixels = pixels.map(row =>
-          row.map(colorIndex => {
-            if (colorIndex < 0) return -1;
-            return colorMap.get(colorIndex) ?? colorIndex;
-          })
-        );
-        
-        // 重新计算统计
-        finalStats = new Map<number, number>();
-        finalPixels.forEach(row => {
-          row.forEach(colorIndex => {
-            if (colorIndex >= 0) {
-              const count = finalStats.get(colorIndex) || 0;
-              finalStats.set(colorIndex, count + 1);
-            }
-          });
+      
+      // 使用颜色聚类合并，减少杂色
+      const colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
+      
+      // 应用颜色映射
+      const finalPixels = pixels.map(row =>
+        row.map(colorIndex => {
+          if (colorIndex < 0) return -1;
+          return colorMap.get(colorIndex) ?? colorIndex;
+        })
+      );
+      
+      // 重新计算统计
+      const finalStats = new Map<number, number>();
+      finalPixels.forEach(row => {
+        row.forEach(colorIndex => {
+          if (colorIndex >= 0) {
+            const count = finalStats.get(colorIndex) || 0;
+            finalStats.set(colorIndex, count + 1);
+          }
         });
-      } else if (stats.size > MAX_COLORS) {
-        // 9点采样：保持原有逻辑（按频率保留前30种）
-        const sortedColors = Array.from(stats.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_COLORS)
-          .map(entry => entry[0]);
-
-        const topColorSet = new Set(sortedColors);
-
-        // Remap all colors to the top 30
-        finalPixels = pixels.map(row =>
-          row.map(colorIndex => {
-            if (colorIndex < 0) return -1;
-            if (topColorSet.has(colorIndex)) return colorIndex;
-
-            const currentColor = beadColors[colorIndex];
-            let minDistance = Infinity;
-            let closestIndex = colorIndex;
-
-            sortedColors.forEach(topIndex => {
-              const topColor = beadColors[topIndex];
-              const distance = Math.sqrt(
-                Math.pow(currentColor.r - topColor.r, 2) +
-                Math.pow(currentColor.g - topColor.g, 2) +
-                Math.pow(currentColor.b - topColor.b, 2)
-              );
-
-              if (distance < minDistance) {
-                minDistance = distance;
-                closestIndex = topIndex;
-              }
-            });
-
-            return closestIndex;
-          })
-        );
-
-        // Recalculate stats
-        finalStats = new Map<number, number>();
-        finalPixels.forEach(row => {
-          row.forEach(colorIndex => {
-            if (colorIndex >= 0) {
-              const count = finalStats.get(colorIndex) || 0;
-              finalStats.set(colorIndex, count + 1);
-            }
-          });
-        });
-      } else {
-        finalPixels = pixels;
-        finalStats = stats;
-      }
+      });
 
       const finalGridColors = finalPixels.map(row =>
         row.map(colorIndex => colorIndex >= 0 ? beadColors[colorIndex] : {
