@@ -317,6 +317,48 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     );
   };
 
+  // 简单截断颜色限制函数（参考26247a7版本，用于9点采样）
+  const limitColorsSimple = (
+    stats: Map<number, number>,
+    beadColors: BeadColor[],
+    maxColors: number
+  ): Map<number, number> => {
+    // 颜色映射：原色号 -> 代表色号
+    const colorMap = new Map<number, number>();
+    
+    // 按使用频率从高到低排序
+    const sortedColors = Array.from(stats.entries())
+      .sort((a, b) => b[1] - a[1]);
+    
+    // 直接保留前 maxColors 种颜色（按频率）
+    const keptColors = new Set<number>();
+    for (let i = 0; i < Math.min(sortedColors.length, maxColors); i++) {
+      const [colorIndex] = sortedColors[i];
+      keptColors.add(colorIndex);
+      colorMap.set(colorIndex, colorIndex);  // 保留颜色映射到自己
+    }
+    
+    // 将剩余颜色映射到最接近的保留颜色
+    for (const [colorIndex] of sortedColors) {
+      if (keptColors.has(colorIndex)) continue;
+      
+      let minDist = Infinity;
+      let closestRepresentative = -1;
+      
+      for (const rep of keptColors) {
+        const dist = colorDistance(beadColors[colorIndex], beadColors[rep]);
+        if (dist < minDist) {
+          minDist = dist;
+          closestRepresentative = rep;
+        }
+      }
+      
+      colorMap.set(colorIndex, closestRepresentative);
+    }
+    
+    return colorMap;
+  };
+
   const detectGridAndProcess = async () => {
     if (!uploadedImage || beadColors.length === 0) return;
 
@@ -532,11 +574,20 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         });
       });
 
-      // Process colors based on sampling mode - 所有采样模式都使用颜色聚类合并
-      const MAX_COLORS = 30;
+      // Process colors based on sampling mode
+      // 9点采样：使用简单截断策略（参考26247a7版本，最大20色）
+      // 单点/5点采样：使用聚类合并策略（最大30色，阈值35）
+      let colorMap: Map<number, number>;
       
-      // 使用颜色聚类合并，减少杂色
-      const colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
+      if (samplingMode === 'multi9') {
+        // 9点采样：简单截断策略
+        const MAX_COLORS = 20;
+        colorMap = limitColorsSimple(stats, beadColors, MAX_COLORS);
+      } else {
+        // 单点/5点采样：聚类合并策略
+        const MAX_COLORS = 30;
+        colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
+      }
       
       // 应用颜色映射
       const finalPixels = pixels.map(row =>
