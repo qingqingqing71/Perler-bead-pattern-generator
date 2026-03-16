@@ -250,6 +250,73 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     return closestIndex;
   };
 
+  // 颜色聚类合并函数（用于5点采样，减少杂色）
+  const clusterColors = (
+    stats: Map<number, number>,
+    beadColors: BeadColor[],
+    maxColors: number,
+    clusterThreshold: number = 35
+  ): Map<number, number> => {
+    // 颜色映射：原色号 -> 代表色号
+    const colorMap = new Map<number, number>();
+    const entries = Array.from(stats.entries()).sort((a, b) => b[1] - a[1]);
+    const used = new Set<number>();
+    
+    // 按使用频率从高到低遍历，建立聚类
+    for (const [colorIndex, count] of entries) {
+      if (used.has(colorIndex)) continue;
+      
+      // 如果已经达到最大颜色数，将剩余颜色映射到最接近的已有颜色
+      if (colorMap.size >= maxColors) {
+        let minDist = Infinity;
+        let closestRepresentative = -1;
+        
+        for (const [rep] of colorMap) {
+          const dist = colorDistance(beadColors[colorIndex], beadColors[rep]);
+          if (dist < minDist) {
+            minDist = dist;
+            closestRepresentative = rep;
+          }
+        }
+        colorMap.set(colorIndex, closestRepresentative);
+        used.add(colorIndex);
+        continue;
+      }
+      
+      // 当前颜色作为新聚类的代表色
+      const currentColor = beadColors[colorIndex];
+      colorMap.set(colorIndex, colorIndex);
+      used.add(colorIndex);
+      
+      // 找出所有相近的颜色，合并到当前聚类
+      for (const [otherIndex, otherCount] of entries) {
+        if (used.has(otherIndex)) continue;
+        
+        const otherColor = beadColors[otherIndex];
+        const dist = colorDistance(currentColor, otherColor);
+        
+        // 如果颜色足够接近，合并到同一聚类
+        if (dist < clusterThreshold) {
+          colorMap.set(otherIndex, colorIndex);
+          used.add(otherIndex);
+          // 累加计数到代表色
+          stats.set(colorIndex, (stats.get(colorIndex) || 0) + otherCount);
+        }
+      }
+    }
+    
+    return colorMap;
+  };
+
+  // 简单颜色距离计算
+  const colorDistance = (c1: BeadColor, c2: BeadColor): number => {
+    return Math.sqrt(
+      Math.pow(c1.r - c2.r, 2) +
+      Math.pow(c1.g - c2.g, 2) +
+      Math.pow(c1.b - c2.b, 2)
+    );
+  };
+
   const detectGridAndProcess = async () => {
     if (!uploadedImage || beadColors.length === 0) return;
 
@@ -465,9 +532,35 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         });
       });
 
-      // Limit to max 30 bead colors
+      // Process colors based on sampling mode
       const MAX_COLORS = 30;
-      if (stats.size > MAX_COLORS) {
+      let finalPixels: number[][];
+      let finalStats: Map<number, number>;
+
+      if (samplingMode === 'multi5') {
+        // 5点采样：使用颜色聚类合并，减少杂色
+        const colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
+        
+        // 应用颜色映射
+        finalPixels = pixels.map(row =>
+          row.map(colorIndex => {
+            if (colorIndex < 0) return -1;
+            return colorMap.get(colorIndex) ?? colorIndex;
+          })
+        );
+        
+        // 重新计算统计
+        finalStats = new Map<number, number>();
+        finalPixels.forEach(row => {
+          row.forEach(colorIndex => {
+            if (colorIndex >= 0) {
+              const count = finalStats.get(colorIndex) || 0;
+              finalStats.set(colorIndex, count + 1);
+            }
+          });
+        });
+      } else if (stats.size > MAX_COLORS) {
+        // 单点/9点采样：保持原有逻辑（按频率保留前30种）
         const sortedColors = Array.from(stats.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, MAX_COLORS)
@@ -475,8 +568,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
         const topColorSet = new Set(sortedColors);
 
-        // Remap all colors to the top 20 (使用 beadColors 中预先计算的 RGB 值)
-        const remappedPixels = pixels.map(row =>
+        // Remap all colors to the top 30
+        finalPixels = pixels.map(row =>
           row.map(colorIndex => {
             if (colorIndex < 0) return -1;
             if (topColorSet.has(colorIndex)) return colorIndex;
@@ -487,7 +580,6 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
             sortedColors.forEach(topIndex => {
               const topColor = beadColors[topIndex];
-              // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
               const distance = Math.sqrt(
                 Math.pow(currentColor.r - topColor.r, 2) +
                 Math.pow(currentColor.g - topColor.g, 2) +
@@ -505,33 +597,33 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         );
 
         // Recalculate stats
-        const newStats = new Map<number, number>();
-        remappedPixels.forEach(row => {
+        finalStats = new Map<number, number>();
+        finalPixels.forEach(row => {
           row.forEach(colorIndex => {
             if (colorIndex >= 0) {
-              const count = newStats.get(colorIndex) || 0;
-              newStats.set(colorIndex, count + 1);
+              const count = finalStats.get(colorIndex) || 0;
+              finalStats.set(colorIndex, count + 1);
             }
           });
         });
-
-        const newGridColors = remappedPixels.map(row =>
-          row.map(colorIndex => colorIndex >= 0 ? beadColors[colorIndex] : {
-            colorName: '',
-            colorCode: '',
-            hex: '#FFFFFF',
-            r: 255,
-            g: 255,
-            b: 255
-          })
-        );
-
-        setColorStats(newStats);
-        setPixelGrid({ width: gridWidth, height: gridHeight, pixels: remappedPixels, gridColors: newGridColors });
       } else {
-        setColorStats(stats);
-        setPixelGrid({ width: gridWidth, height: gridHeight, pixels, gridColors });
+        finalPixels = pixels;
+        finalStats = stats;
       }
+
+      const finalGridColors = finalPixels.map(row =>
+        row.map(colorIndex => colorIndex >= 0 ? beadColors[colorIndex] : {
+          colorName: '',
+          colorCode: '',
+          hex: '#FFFFFF',
+          r: 255,
+          g: 255,
+          b: 255
+        })
+      );
+
+      setColorStats(finalStats);
+      setPixelGrid({ width: gridWidth, height: gridHeight, pixels: finalPixels, gridColors: finalGridColors });
 
       setIsProcessing(false);
     };
