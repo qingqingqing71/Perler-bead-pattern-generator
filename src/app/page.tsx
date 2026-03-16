@@ -459,8 +459,7 @@ export default function Home() {
         setBeadPatternLegend(displayResult.legend);
       }
       
-      // 记录使用次数
-      recordUsage('bead_pattern', Math.max(effectiveGridCols, effectiveGridRows));
+      // 使用次数记录移到导出时
     } catch (err) {
       console.error('Bead pattern error:', err);
       setError(err instanceof Error ? err.message : '拼豆图纸生成失败');
@@ -494,6 +493,12 @@ export default function Home() {
   const handleDownloadBeadPattern = useCallback(async () => {
     if (!pixelatedSubject) return;
 
+    // 检查使用次数限制
+    if (usageCount >= usageLimit) {
+      setError('今日导出次数已达上限');
+      return;
+    }
+
     try {
       let result;
       
@@ -510,11 +515,14 @@ export default function Home() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // 导出拼豆图纸时记录使用次数
+      recordUsage('export_bead_pattern', Math.max(effectiveGridCols, effectiveGridRows));
     } catch (err) {
       console.error('HD download error:', err);
       setError('下载拼豆图纸失败');
     }
-  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy, samplingMode, beadColors]);
+  }, [pixelatedSubject, effectiveGridCols, effectiveGridRows, colorMatchAccuracy, samplingMode, beadColors, usageCount, usageLimit]);
 
   const handleReset = useCallback(() => {
     setOriginalImage(null);
