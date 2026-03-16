@@ -496,44 +496,27 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
               a = 0;
             }
           } else {
-            // 9点采样：3×3网格（均匀分布）
-            const cellW = endX - startX;
-            const cellH = endY - startY;
+            // 9点采样：格子内所有像素取平均（参考26247a7版本）
+            let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+            let pixelCount = 0;
             
-            // 9点位置：3×3网格
-            const points: { x: number; y: number }[] = [];
-            for (let dy = 0; dy < 3; dy++) {
-              for (let dx = 0; dx < 3; dx++) {
-                points.push({
-                  x: Math.floor(startX + cellW * (dx + 0.5) / 3),
-                  y: Math.floor(startY + cellH * (dy + 0.5) / 3)
-                });
+            for (let py = startY; py < endY; py++) {
+              for (let px = startX; px < endX; px++) {
+                const color = getPixelColor(px, py);
+                totalR += color.r;
+                totalG += color.g;
+                totalB += color.b;
+                totalA += color.a;
+                pixelCount++;
               }
             }
-
-            let sumR = 0, sumG = 0, sumB = 0, validCount = 0;
-            let hasValidPixel = false;
             
-            points.forEach(p => {
-              const color = getPixelColor(p.x, p.y);
-              // 只计算非透明点（a >= 128）
-              if (color.a >= 128) {
-                sumR += color.r;
-                sumG += color.g;
-                sumB += color.b;
-                validCount++;
-                hasValidPixel = true;
-              }
-            });
-            
-            if (hasValidPixel) {
-              // 有有效的像素点，取平均值
-              r = Math.round(sumR / validCount);
-              g = Math.round(sumG / validCount);
-              b = Math.round(sumB / validCount);
-              a = 255;  // 有有效像素，标记为不透明
+            if (pixelCount > 0) {
+              r = Math.round(totalR / pixelCount);
+              g = Math.round(totalG / pixelCount);
+              b = Math.round(totalB / pixelCount);
+              a = Math.round(totalA / pixelCount);
             } else {
-              // 所有点都是透明的
               r = 255;
               g = 255;
               b = 255;
