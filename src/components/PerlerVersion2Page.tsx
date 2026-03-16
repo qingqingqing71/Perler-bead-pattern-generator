@@ -339,11 +339,12 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     );
   };
 
-  // 简单截断颜色限制函数（参考26247a7版本，用于9点采样）
+  // 简单截断颜色限制函数 + 相近色合并（参考26247a7版本，用于9点采样）
   const limitColorsSimple = (
     stats: Map<number, number>,
     beadColors: BeadColor[],
-    maxColors: number
+    maxColors: number,
+    mergeThreshold: number = 30  // 相近色合并阈值
   ): Map<number, number> => {
     // 颜色映射：原色号 -> 代表色号
     const colorMap = new Map<number, number>();
@@ -353,21 +354,49 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       .sort((a, b) => b[1] - a[1]);
     
     // 直接保留前 maxColors 种颜色（按频率）
-    const keptColors = new Set<number>();
+    const keptColors: number[] = [];
     for (let i = 0; i < Math.min(sortedColors.length, maxColors); i++) {
       const [colorIndex] = sortedColors[i];
-      keptColors.add(colorIndex);
-      colorMap.set(colorIndex, colorIndex);  // 保留颜色映射到自己
+      keptColors.push(colorIndex);
     }
     
-    // 将剩余颜色映射到最接近的保留颜色
+    // 对保留的颜色进行相近色合并
+    const finalKeptColors = new Set<number>();
+    const merged = new Set<number>();
+    
+    for (let i = 0; i < keptColors.length; i++) {
+      const colorIndex = keptColors[i];
+      if (merged.has(colorIndex)) continue;
+      
+      finalKeptColors.add(colorIndex);
+      colorMap.set(colorIndex, colorIndex);
+      
+      // 检查后面的颜色是否与当前颜色相近
+      for (let j = i + 1; j < keptColors.length; j++) {
+        const otherIndex = keptColors[j];
+        if (merged.has(otherIndex)) continue;
+        
+        const dist = colorDistance(beadColors[colorIndex], beadColors[otherIndex]);
+        
+        // 如果颜色足够接近，合并到当前颜色
+        if (dist < mergeThreshold) {
+          merged.add(otherIndex);
+          colorMap.set(otherIndex, colorIndex);
+        }
+      }
+    }
+    
+    // 将剩余颜色（未保留的和被合并的）映射到最接近的最终保留颜色
     for (const [colorIndex] of sortedColors) {
-      if (keptColors.has(colorIndex)) continue;
+      if (finalKeptColors.has(colorIndex)) continue;
+      
+      // 如果已经被合并了，跳过
+      if (colorMap.has(colorIndex)) continue;
       
       let minDist = Infinity;
       let closestRepresentative = -1;
       
-      for (const rep of keptColors) {
+      for (const rep of finalKeptColors) {
         const dist = colorDistance(beadColors[colorIndex], beadColors[rep]);
         if (dist < minDist) {
           minDist = dist;
