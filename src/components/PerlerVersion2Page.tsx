@@ -537,8 +537,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       let finalPixels: number[][];
       let finalStats: Map<number, number>;
 
-      if (samplingMode === 'multi5') {
-        // 5点采样：使用颜色聚类合并，减少杂色
+      if (samplingMode === 'single' || samplingMode === 'multi5') {
+        // 单点/5点采样：使用颜色聚类合并，减少杂色
         const colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
         
         // 应用颜色映射
@@ -560,7 +560,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
           });
         });
       } else if (stats.size > MAX_COLORS) {
-        // 单点/9点采样：保持原有逻辑（按频率保留前30种）
+        // 9点采样：保持原有逻辑（按频率保留前30种）
         const sortedColors = Array.from(stats.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, MAX_COLORS)
