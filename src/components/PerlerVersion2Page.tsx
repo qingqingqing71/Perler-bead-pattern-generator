@@ -524,12 +524,12 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
             }
           }
 
-          if (a >= 128) {
+          if (a > 10) {
             const colorIndex = findClosestBeadColor(r, g, b);
             row.push(colorIndex);
             colorRow.push(beadColors[colorIndex]);
           } else {
-            // 透明像素 - 与 perler_VERSION2 完全一致
+            // 透明像素 - 与 26247a7 版本一致（阈值 > 10）
             row.push(-1);
             colorRow.push({
               colorName: '',
