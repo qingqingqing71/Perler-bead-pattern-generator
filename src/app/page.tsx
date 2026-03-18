@@ -554,9 +554,79 @@ export default function Home() {
   }, []);
 
   const canUpload = step === 'idle' || step === 'done';
-  // 所有采样模式都使用 perler_VERSION2 风格的页面
+  
+  // 未认证时显示登录界面
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">自助拼豆图纸生成器</h1>
+              <p className="text-slate-500 dark:text-slate-400 mt-2">请输入访问密钥以继续</p>
+            </div>
+            
+            {authError && (
+              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-red-700 dark:text-red-400">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">{authError}</span>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">访问密钥</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  placeholder="请输入访问密钥"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                />
+              </div>
+              <Button 
+                className="w-full" 
+                onClick={handleAuth}
+                disabled={isAuthenticating}
+              >
+                {isAuthenticating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    验证中...
+                  </>
+                ) : (
+                  <>
+                    <Key className="mr-2 h-4 w-4" />
+                    验证密钥
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  
+  // 已认证时显示主页面
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+      {/* 用户信息栏 */}
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-slate-600 dark:text-slate-400">
+            用户: <span className="font-medium text-slate-900 dark:text-slate-100">{userName}</span>
+          </span>
+          <span className="text-sm text-slate-600 dark:text-slate-400">
+            今日导出次数: <span className="font-medium text-slate-900 dark:text-slate-100">{usageCount}/{usageLimit}</span>
+          </span>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" />
+          退出登录
+        </Button>
+      </div>
       <PerlerVersion2Page />
     </div>
   );
