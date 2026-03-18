@@ -612,18 +612,18 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       });
 
       // Process colors based on sampling mode
-      // 9点采样：使用简单截断策略（参考26247a7版本，最大20色）
-      // 单点/5点采样：使用聚类合并策略（最大30色，阈值35）
+      // 所有采样模式都使用简单截断+相近色合并策略，参数不同
       let colorMap: Map<number, number>;
       
-      if (samplingMode === 'multi9') {
-        // 9点采样：简单截断策略
-        const MAX_COLORS = 20;
-        colorMap = limitColorsSimple(stats, beadColors, MAX_COLORS);
+      if (samplingMode === 'single') {
+        // 单点采样：最大18色，阈值15（颜色信息最少，保留更少颜色）
+        colorMap = limitColorsSimple(stats, beadColors, 18, 15);
+      } else if (samplingMode === 'multi5') {
+        // 5点采样：最大20色，阈值20（颜色信息中等）
+        colorMap = limitColorsSimple(stats, beadColors, 20, 20);
       } else {
-        // 单点/5点采样：聚类合并策略
-        const MAX_COLORS = 30;
-        colorMap = clusterColors(stats, beadColors, MAX_COLORS, 35);
+        // 9点采样：最大22色，阈值15（颜色最准确，可以保留更多颜色）
+        colorMap = limitColorsSimple(stats, beadColors, 22, 15);
       }
       
       // 应用颜色映射
