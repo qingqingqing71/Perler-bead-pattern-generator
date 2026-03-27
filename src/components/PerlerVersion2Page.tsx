@@ -213,55 +213,19 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     } : { r: 255, g: 255, b: 255 };
   };
 
+  // 找到最接近的拼豆颜色（统一使用CIEDE2000，提高颜色匹配准确性）
   const findClosestBeadColor = (r: number, g: number, b: number): number => {
     let minDistance = Infinity;
     let closestIndex = 0;
 
-    if (colorMatchAccuracy === 'enhanced') {
-      const inputLab = rgbToLab(r, g, b);
-
-      for (let i = 0; i < beadColors.length; i++) {
-        const color = beadColors[i];
-        // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
-        const colorLab = rgbToLab(color.r, color.g, color.b);
-        const distance = deltaE2000(inputLab, colorLab);
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = i;
-        }
-      }
-    } else {
-      for (let i = 0; i < beadColors.length; i++) {
-        const color = beadColors[i];
-        // 使用 beadColors 中预先计算的 RGB 值（与 perler_VERSION2 完全一致）
-        const dr = r - color.r;
-        const dg = g - color.g;
-        const db = b - color.b;
-        const distance = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = i;
-        }
-      }
-    }
-
-    return closestIndex;
-  };
-
-  // 简单RGB欧氏距离颜色匹配（参考26247a7版本，用于9点采样）
-  const findClosestBeadColorSimple = (r: number, g: number, b: number): number => {
-    let minDistance = Infinity;
-    let closestIndex = 0;
+    // 强制使用 CIEDE2000 匹配（最准确）
+    const inputLab = rgbToLab(r, g, b);
 
     for (let i = 0; i < beadColors.length; i++) {
       const color = beadColors[i];
-      // 简单RGB欧氏距离（与26247a7版本一致）
-      const dr = r - color.r;
-      const dg = g - color.g;
-      const db = b - color.b;
-      const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+      // 使用 beadColors 中预先计算的 RGB 值
+      const colorLab = rgbToLab(color.r, color.g, color.b);
+      const distance = deltaE2000(inputLab, colorLab);
 
       if (distance < minDistance) {
         minDistance = distance;
@@ -629,10 +593,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
           }
 
           if (a > 10) {
-            // 9点采样使用简单RGB欧氏距离，单点/5点采样使用原有匹配方式
-            const colorIndex = samplingMode === 'multi9' 
-              ? findClosestBeadColorSimple(r, g, b) 
-              : findClosestBeadColor(r, g, b);
+            // 统一使用 CIEDE2000 匹配（最准确）
+            const colorIndex = findClosestBeadColor(r, g, b);
             row.push(colorIndex);
             colorRow.push(beadColors[colorIndex]);
           } else {
@@ -734,8 +696,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
           const a = Math.round(totalA / pixelCount);
           
           if (a > 10) {
-            // 使用简单RGB欧氏距离匹配（与9点采样一致）
-            const newColorIndex = findClosestBeadColorSimple(r, g, b);
+            // 统一使用 CIEDE2000 匹配（最准确）
+            const newColorIndex = findClosestBeadColor(r, g, b);
             pixels[y][x] = newColorIndex;
             gridColors[y][x] = beadColors[newColorIndex];
           }
