@@ -500,6 +500,21 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       // Get image data
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+      // 色彩拍平：减少颜色过渡，使图像更卡通化
+      // 通过降低颜色精度（从8位降到5位）来合并相近颜色
+      const flattenColors = (data: Uint8ClampedArray) => {
+        const factor = 8; // 位深度：8 - 5 = 3，即每8个等级合并为1个
+        for (let i = 0; i < data.length; i += 4) {
+          // 降低R、G、B通道的精度
+          data[i] = Math.round(data[i] / factor) * factor;     // R
+          data[i + 1] = Math.round(data[i + 1] / factor) * factor; // G
+          data[i + 2] = Math.round(data[i + 2] / factor) * factor; // B
+          // Alpha通道保持不变
+        }
+      };
+      
+      flattenColors(imageData.data);
+
       // Calculate grid cell size
       const cellWidth = Math.floor(canvas.width / gridWidth);
       const cellHeight = Math.floor(canvas.height / gridHeight);
