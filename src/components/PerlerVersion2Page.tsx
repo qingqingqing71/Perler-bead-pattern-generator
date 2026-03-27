@@ -344,23 +344,51 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     stats: Map<number, number>,
     beadColors: BeadColor[],
     maxColors: number,
-    mergeThreshold: number = 30  // 相近色合并阈值
+    mergeThreshold: number = 30,  // 相近色合并阈值
+    edgeCells?: Set<string>,  // 边缘格子集合
+    pixels?: number[][]  // 像素网格
   ): Map<number, number> => {
     // 颜色映射：原色号 -> 代表色号
     const colorMap = new Map<number, number>();
+    
+    // 收集边缘格子使用的颜色
+    const edgeColors = new Set<number>();
+    if (edgeCells && pixels) {
+      edgeCells.forEach(key => {
+        const [x, y] = key.split(',').map(Number);
+        const colorIndex = pixels[y][x];
+        if (colorIndex >= 0) {
+          edgeColors.add(colorIndex);
+        }
+      });
+    }
     
     // 按使用频率从高到低排序
     const sortedColors = Array.from(stats.entries())
       .sort((a, b) => b[1] - a[1]);
     
-    // 直接保留前 maxColors 种颜色（按频率）
+    // 优先保留边缘格子使用的颜色
     const keptColors: number[] = [];
-    for (let i = 0; i < Math.min(sortedColors.length, maxColors); i++) {
-      const [colorIndex] = sortedColors[i];
-      keptColors.push(colorIndex);
+    const processedColors = new Set<number>();
+    
+    // 先添加边缘颜色
+    for (const [colorIndex, count] of sortedColors) {
+      if (edgeColors.has(colorIndex) && !processedColors.has(colorIndex)) {
+        keptColors.push(colorIndex);
+        processedColors.add(colorIndex);
+      }
     }
     
-    // 对保留的颜色进行相近色合并
+    // 再添加其他颜色（直到达到最大颜色数）
+    for (const [colorIndex, count] of sortedColors) {
+      if (processedColors.has(colorIndex)) continue;
+      if (keptColors.length >= maxColors) break;
+      
+      keptColors.push(colorIndex);
+      processedColors.add(colorIndex);
+    }
+    
+    // 对保留的颜色进行相近色合并，但保护边缘颜色不被合并
     const finalKeptColors = new Set<number>();
     const merged = new Set<number>();
     
@@ -378,8 +406,11 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         
         const dist = colorDistance(beadColors[colorIndex], beadColors[otherIndex]);
         
+        // 边缘颜色不会被合并，除非颜色非常接近（阈值更小）
+        const edgeThreshold = edgeColors.has(otherIndex) ? mergeThreshold / 2 : mergeThreshold;
+        
         // 如果颜色足够接近，合并到当前颜色
-        if (dist < mergeThreshold) {
+        if (dist < edgeThreshold && !edgeColors.has(otherIndex)) {
           merged.add(otherIndex);
           colorMap.set(otherIndex, colorIndex);
         }
@@ -600,15 +631,114 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         gridColors.push(colorRow);
       }
 
+      // 边缘检测和优化
+      const edgeCells = new Set<string>();
+      const edgeThreshold = 40; // RGB距离阈值，超过则认为是边缘
+      
+      for (let y = 0; y < gridHeight; y++) {
+        for (let x = 0; x < gridWidth; x++) {
+          const colorIndex = pixels[y][x];
+          if (colorIndex < 0) continue; // 跳过透明格子
+          
+          const currentColor = beadColors[colorIndex];
+          let isEdge = false;
+          
+          // 检查周围8个格子
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              
+              const ny = y + dy;
+              const nx = x + dx;
+              
+              if (ny >= 0 && ny < gridHeight && nx >= 0 && nx < gridWidth) {
+                const neighborIndex = pixels[ny][nx];
+                if (neighborIndex < 0) {
+                  // 邻居是透明格子，当前格子是边缘
+                  isEdge = true;
+                  break;
+                }
+                
+                const neighborColor = beadColors[neighborIndex];
+                const dist = colorDistance(currentColor, neighborColor);
+                
+                if (dist > edgeThreshold) {
+                  isEdge = true;
+                  break;
+                }
+              } else {
+                // 边界格子，认为是边缘
+                isEdge = true;
+                break;
+              }
+            }
+            if (isEdge) break;
+          }
+          
+          if (isEdge) {
+            edgeCells.add(`${x},${y}`);
+          }
+        }
+      }
+      
+      // 对边缘格子重新用全像素平均采样（更准确）
+      for (const key of edgeCells) {
+        const [x, y] = key.split(',').map(Number);
+        
+        const startX = x * cellWidth;
+        const startY = y * cellHeight;
+        const endX = Math.min((x + 1) * cellWidth, canvas.width);
+        const endY = Math.min((y + 1) * cellHeight, canvas.height);
+        
+        let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+        let pixelCount = 0;
+        
+        // 全像素平均采样
+        for (let py = startY; py < endY; py++) {
+          for (let px = startX; px < endX; px++) {
+            const color = getPixelColor(px, py);
+            totalR += color.r;
+            totalG += color.g;
+            totalB += color.b;
+            totalA += color.a;
+            pixelCount++;
+          }
+        }
+        
+        if (pixelCount > 0) {
+          const r = Math.round(totalR / pixelCount);
+          const g = Math.round(totalG / pixelCount);
+          const b = Math.round(totalB / pixelCount);
+          const a = Math.round(totalA / pixelCount);
+          
+          if (a > 10) {
+            // 使用简单RGB欧氏距离匹配（与9点采样一致）
+            const newColorIndex = findClosestBeadColorSimple(r, g, b);
+            pixels[y][x] = newColorIndex;
+            gridColors[y][x] = beadColors[newColorIndex];
+          }
+        }
+      }
+
       // Calculate color statistics
       const stats = new Map<number, number>();
       pixels.forEach(row => {
-        row.forEach(colorIndex => {
+        row.forEach((colorIndex, x) => {
           if (colorIndex >= 0) {
             const count = stats.get(colorIndex) || 0;
             stats.set(colorIndex, count + 1);
           }
         });
+      });
+      
+      // 边缘格子的颜色给予额外权重（每个边缘格子额外算1次）
+      edgeCells.forEach(key => {
+        const [x, y] = key.split(',').map(Number);
+        const colorIndex = pixels[y][x];
+        if (colorIndex >= 0) {
+          const count = stats.get(colorIndex) || 0;
+          stats.set(colorIndex, count + 1); // 额外权重
+        }
       });
 
       // Process colors based on sampling mode
@@ -617,13 +747,13 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       
       if (samplingMode === 'single') {
         // 单点采样：最大18色，阈值15（颜色信息最少，保留更少颜色）
-        colorMap = limitColorsSimple(stats, beadColors, 18, 15);
+        colorMap = limitColorsSimple(stats, beadColors, 18, 15, edgeCells, pixels);
       } else if (samplingMode === 'multi5') {
         // 5点采样：最大20色，阈值20（颜色信息中等）
-        colorMap = limitColorsSimple(stats, beadColors, 20, 20);
+        colorMap = limitColorsSimple(stats, beadColors, 20, 20, edgeCells, pixels);
       } else {
         // 9点采样：最大22色，阈值15（颜色最准确，可以保留更多颜色）
-        colorMap = limitColorsSimple(stats, beadColors, 22, 15);
+        colorMap = limitColorsSimple(stats, beadColors, 22, 15, edgeCells, pixels);
       }
       
       // 应用颜色映射
