@@ -399,6 +399,11 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       finalKeptColors.add(colorIndex);
       colorMap.set(colorIndex, colorIndex);
       
+      // 如果当前颜色是边缘颜色，不合并任何颜色
+      if (edgeColors.has(colorIndex)) {
+        continue;
+      }
+      
       // 检查后面的颜色是否与当前颜色相近
       for (let j = i + 1; j < keptColors.length; j++) {
         const otherIndex = keptColors[j];
@@ -406,11 +411,13 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         
         const dist = colorDistance(beadColors[colorIndex], beadColors[otherIndex]);
         
-        // 边缘颜色不会被合并，除非颜色非常接近（阈值更小）
-        const edgeThreshold = edgeColors.has(otherIndex) ? mergeThreshold / 2 : mergeThreshold;
+        // 边缘颜色完全不合并
+        if (edgeColors.has(otherIndex)) {
+          continue;
+        }
         
         // 如果颜色足够接近，合并到当前颜色
-        if (dist < edgeThreshold && !edgeColors.has(otherIndex)) {
+        if (dist < mergeThreshold) {
           merged.add(otherIndex);
           colorMap.set(otherIndex, colorIndex);
         }
@@ -633,7 +640,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
       // 边缘检测和优化
       const edgeCells = new Set<string>();
-      const edgeThreshold = 40; // RGB距离阈值，超过则认为是边缘
+      const edgeThreshold = 30; // RGB距离阈值，超过则认为是边缘（更敏感）
       
       for (let y = 0; y < gridHeight; y++) {
         for (let x = 0; x < gridWidth; x++) {
@@ -731,29 +738,29 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         });
       });
       
-      // 边缘格子的颜色给予额外权重（每个边缘格子额外算1次）
+      // 边缘格子的颜色给予额外权重（每个边缘格子额外算3次，增强保护）
       edgeCells.forEach(key => {
         const [x, y] = key.split(',').map(Number);
         const colorIndex = pixels[y][x];
         if (colorIndex >= 0) {
           const count = stats.get(colorIndex) || 0;
-          stats.set(colorIndex, count + 1); // 额外权重
+          stats.set(colorIndex, count + 3); // 额外权重从1次增加到3次
         }
       });
 
       // Process colors based on sampling mode
-      // 所有采样模式都使用简单截断+相近色合并策略，参数不同
+      // 所有采样模式都使用简单截断+相近色合并策略，参数调整（减少杂色）
       let colorMap: Map<number, number>;
       
       if (samplingMode === 'single') {
-        // 单点采样：最大18色，阈值15（颜色信息最少，保留更少颜色）
-        colorMap = limitColorsSimple(stats, beadColors, 18, 15, edgeCells, pixels);
+        // 单点采样：最大15色，阈值10（更严格的杂色控制）
+        colorMap = limitColorsSimple(stats, beadColors, 15, 10, edgeCells, pixels);
       } else if (samplingMode === 'multi5') {
-        // 5点采样：最大20色，阈值20（颜色信息中等）
-        colorMap = limitColorsSimple(stats, beadColors, 20, 20, edgeCells, pixels);
+        // 5点采样：最大15色，阈值10（更严格的杂色控制）
+        colorMap = limitColorsSimple(stats, beadColors, 15, 10, edgeCells, pixels);
       } else {
-        // 9点采样：最大22色，阈值15（颜色最准确，可以保留更多颜色）
-        colorMap = limitColorsSimple(stats, beadColors, 22, 15, edgeCells, pixels);
+        // 9点采样：最大18色，阈值10（最准确但也更严格）
+        colorMap = limitColorsSimple(stats, beadColors, 18, 10, edgeCells, pixels);
       }
       
       // 应用颜色映射
