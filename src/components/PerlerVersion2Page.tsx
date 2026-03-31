@@ -350,24 +350,26 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     // 按使用频率从高到低排序
     const sortedColors = Array.from(stats.entries())
       .sort((a, b) => b[1] - a[1]);
-    
-    // 优先保留边缘格子使用的颜色
+
+    // 计算每个颜色的权重（边缘颜色权重更高）
+    const weightedColors = sortedColors.map(([colorIndex, count]) => {
+      const weight = edgeColors.has(colorIndex) ? count * 3 : count; // 边缘颜色额外算3次
+      return { colorIndex, weight };
+    });
+
+    // 按权重从高到低排序
+    const sortedByWeight = weightedColors
+      .sort((a, b) => b.weight - a.weight)
+      .map(item => [item.colorIndex, stats.get(item.colorIndex) || 0]);
+
+    // 保留权重最高的 maxColors 个颜色
     const keptColors: number[] = [];
     const processedColors = new Set<number>();
-    
-    // 先添加边缘颜色
-    for (const [colorIndex, count] of sortedColors) {
-      if (edgeColors.has(colorIndex) && !processedColors.has(colorIndex)) {
-        keptColors.push(colorIndex);
-        processedColors.add(colorIndex);
-      }
-    }
-    
-    // 再添加其他颜色（直到达到最大颜色数）
-    for (const [colorIndex, count] of sortedColors) {
+
+    for (const [colorIndex, count] of sortedByWeight) {
       if (processedColors.has(colorIndex)) continue;
       if (keptColors.length >= maxColors) break;
-      
+
       keptColors.push(colorIndex);
       processedColors.add(colorIndex);
     }
