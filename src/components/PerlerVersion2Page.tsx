@@ -60,6 +60,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   const [colorStats, setColorStats] = useState<Map<number, number>>(new Map());
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 1.2>(1); // 放大倍数
   const autoRegenerateRef = useRef(false); // 防止自动重新生成重复触发的标志
+  const isRegeneratingRef = useRef(false); // 防止重复重新生成的标志
 
   // Load bead colors on mount (与 perler_VERSION2 完全一致)
   useEffect(() => {
@@ -75,15 +76,18 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
 
   // 当颜色模式或自定义颜色数改变时，如果有上传的图片，自动重新生成图纸
   useEffect(() => {
-    // 只在非首次渲染且有上传图片时触发
-    if (autoRegenerateRef.current && uploadedImage && beadColors.length > 0 && !isProcessing) {
+    // 只在非首次渲染且有上传图片、不在处理中、未在重新生成时触发
+    if (autoRegenerateRef.current && uploadedImage && beadColors.length > 0 && !isProcessing && !isRegeneratingRef.current) {
+      isRegeneratingRef.current = true; // 标记正在重新生成
       // 延迟一下，确保状态已经更新
       const timer = setTimeout(() => {
-        detectGridAndProcess();
+        detectGridAndProcess().finally(() => {
+          isRegeneratingRef.current = false; // 重置标记
+        });
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [colorMode, customMaxColors, uploadedImage, beadColors, isProcessing]);
+  }, [colorMode, customMaxColors]); // 只监听 colorMode 和 customMaxColors 的变化
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
