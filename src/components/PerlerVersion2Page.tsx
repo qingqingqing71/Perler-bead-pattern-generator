@@ -72,6 +72,14 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       });
   }, []);
 
+  // 当颜色模式或自定义颜色数改变时，清除已有的图纸，提示用户重新生成
+  useEffect(() => {
+    if (pixelGrid) {
+      setPixelGrid(null);
+      setColorStats(new Map());
+    }
+  }, [colorMode, customMaxColors]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -1362,6 +1370,11 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                 <p className="text-xs text-gray-500 mt-1">
                   简化模式适合卡通/Logo，标准适合照片，精准适合复杂图案
                 </p>
+                {pixelGrid && (
+                  <p className="text-xs text-orange-600 mt-1 font-medium">
+                    ⚠️ 已清除图纸，请重新生成以应用新颜色模式
+                  </p>
+                )}
               </div>
               <div className="mt-4">
                 <Label htmlFor="custom-max-colors">自定义最大颜色数（选择自定义模式时生效）</Label>
