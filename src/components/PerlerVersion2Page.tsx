@@ -55,6 +55,8 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   const [showGridLines, setShowGridLines] = useState(true);
   const [showColorCodes, setShowColorCodes] = useState(true);
   const [colorMatchAccuracy, setColorMatchAccuracy] = useState<'standard' | 'enhanced'>('enhanced');
+  const [colorMode, setColorMode] = useState<'simple' | 'standard' | 'accurate' | 'custom'>('simple'); // 颜色模式：简化/标准/精准/自定义
+  const [customMaxColors, setCustomMaxColors] = useState(15); // 自定义最大颜色数
   const [colorStats, setColorStats] = useState<Map<number, number>>(new Map());
   const [upscaleFactor, setUpscaleFactor] = useState<1 | 1.2>(1); // 放大倍数
 
@@ -735,20 +737,30 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
         }
       });
 
-      // Process colors based on sampling mode
+      // 根据颜色模式计算最大颜色数
+      let maxColors: number;
+      if (colorMode === 'simple') {
+        // 简化模式：15色
+        maxColors = 15;
+      } else if (colorMode === 'standard') {
+        // 标准模式：30色
+        maxColors = 30;
+      } else if (colorMode === 'accurate') {
+        // 精准模式：不限制（最多221色）
+        maxColors = 221;
+      } else if (colorMode === 'custom') {
+        // 自定义模式
+        maxColors = customMaxColors;
+      } else {
+        // 默认简化模式
+        maxColors = 15;
+      }
+
+      // Process colors based on color mode
       // 所有采样模式都使用简单截断+相近色合并策略，参数调整（减少杂色）
       let colorMap: Map<number, number>;
-      
-      if (samplingMode === 'single') {
-        // 单点采样：最大15色，阈值10（更严格的杂色控制）
-        colorMap = limitColorsSimple(stats, beadColors, 15, 10, edgeCells, pixels);
-      } else if (samplingMode === 'multi5') {
-        // 5点采样：最大15色，阈值10（更严格的杂色控制）
-        colorMap = limitColorsSimple(stats, beadColors, 15, 10, edgeCells, pixels);
-      } else {
-        // 9点采样：最大18色，阈值10（最准确但也更严格）
-        colorMap = limitColorsSimple(stats, beadColors, 18, 10, edgeCells, pixels);
-      }
+
+      colorMap = limitColorsSimple(stats, beadColors, maxColors, 10, edgeCells, pixels);
       
       // 应用颜色映射
       const finalPixels = pixels.map(row =>
@@ -1309,6 +1321,76 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   单点取中心颜色，多点取平均值
+                </p>
+              </div>
+              <div className="mt-4">
+                <Label>颜色模式</Label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    variant={colorMode === 'simple' ? 'default' : 'outline'}
+                    size="sm"
+                    className={colorMode === 'simple' ? 'bg-green-600 hover:bg-green-700' : ''}
+                    onClick={() => setColorMode('simple')}
+                  >
+                    简化 (15色)
+                  </Button>
+                  <Button
+                    variant={colorMode === 'standard' ? 'default' : 'outline'}
+                    size="sm"
+                    className={colorMode === 'standard' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    onClick={() => setColorMode('standard')}
+                  >
+                    标准 (30色)
+                  </Button>
+                  <Button
+                    variant={colorMode === 'accurate' ? 'default' : 'outline'}
+                    size="sm"
+                    className={colorMode === 'accurate' ? 'bg-purple-600 hover:bg-purple-700' : ''}
+                    onClick={() => setColorMode('accurate')}
+                  >
+                    精准 (不限制)
+                  </Button>
+                  <Button
+                    variant={colorMode === 'custom' ? 'default' : 'outline'}
+                    size="sm"
+                    className={colorMode === 'custom' ? 'bg-orange-600 hover:bg-orange-700' : ''}
+                    onClick={() => setColorMode('custom')}
+                  >
+                    自定义
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  简化模式适合卡通/Logo，标准适合照片，精准适合复杂图案
+                </p>
+              </div>
+              <div className="mt-4">
+                <Label htmlFor="custom-max-colors">自定义最大颜色数（选择自定义模式时生效）</Label>
+                <Input
+                  id="custom-max-colors"
+                  type="number"
+                  min={1}
+                  max={221}
+                  value={customMaxColors}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const numValue = Number(value);
+                    if (!isNaN(numValue) && numValue >= 1 && numValue <= 221) {
+                      setCustomMaxColors(numValue);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const value = e.target.value;
+                    const numValue = Number(value);
+                    if (value === '' || isNaN(numValue) || numValue < 1 || numValue > 221) {
+                      setCustomMaxColors(15);
+                    }
+                  }}
+                  className="mt-1"
+                  placeholder="1-221"
+                  disabled={colorMode !== 'custom'}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {colorMode === 'custom' ? '当前使用自定义颜色数' : '选择"自定义"模式后生效（1-221）'}
                 </p>
               </div>
               <div className="mt-4">
