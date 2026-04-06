@@ -1137,6 +1137,23 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     }
   };
 
+  // 记录使用次数的函数
+  const recordUsage = async (action: string, gridSize?: number, upscaleFactor?: number) => {
+    // 从 localStorage 获取用户 ID（如果使用密钥登录）
+    const userId = localStorage.getItem('apiKey');
+    if (!userId) return;
+
+    try {
+      await fetch('/api/usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, action, gridSize, upscaleFactor }),
+      });
+    } catch (error) {
+      console.error('Failed to record usage:', error);
+    }
+  };
+
   const exportImage = () => {
     if (!canvasRef.current || !pixelGrid || colorStats.size === 0) return;
 
@@ -1144,6 +1161,9 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
     link.download = 'bead-pattern-with-legend.png';
     link.href = canvasRef.current.toDataURL('image/png');
     link.click();
+
+    // 导出拼豆图纸时记录使用次数
+    recordUsage('export_bead_pattern', Math.max(gridWidth, gridHeight), upscaleFactor);
   };
 
   useEffect(() => {
