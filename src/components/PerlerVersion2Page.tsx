@@ -1140,7 +1140,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
   // 记录使用次数的函数
   const recordUsage = async (action: string, gridSize?: number, upscaleFactor?: number) => {
     // 从 localStorage 获取用户 ID（如果使用密钥登录）
-    const userId = localStorage.getItem('apiKey');
+    const userId = localStorage.getItem('userId');
     if (!userId) {
       console.log('No userId found in localStorage, skipping usage recording');
       return;
@@ -1151,7 +1151,7 @@ export default function PerlerVersion2Page({ onBack, samplingMode: propSamplingM
       const response = await fetch('/api/usage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, action, gridSize, upscaleFactor }),
+        body: JSON.stringify({ userId: parseInt(userId), action, gridSize, upscaleFactor }),
       });
       const result = await response.json();
       console.log('Usage record result:', result);

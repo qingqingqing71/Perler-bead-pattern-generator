@@ -135,6 +135,7 @@ export default function Home() {
         setUsageCount(data.user.usageCount);
         setUsageLimit(data.user.usageLimit);
         localStorage.setItem('apiKey', apiKey);
+        localStorage.setItem('userId', data.user.id.toString());
       } else {
         setAuthError(data.error || '认证失败');
       }
@@ -154,6 +155,7 @@ export default function Home() {
     setUsageCount(0);
     setUsageLimit(0);
     localStorage.removeItem('apiKey');
+    localStorage.removeItem('userId');
   };
 
   // 记录使用次数
