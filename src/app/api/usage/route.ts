@@ -31,17 +31,18 @@ export async function POST(request: NextRequest) {
 
     // 检查并重置每日使用次数
     const today = new Date().toISOString().split('T')[0];
-    const currentUsageCount = user.usage_count ?? 0;
-    
+    let currentUsageCount = user.usage_count ?? 0;
+
     if (user.last_usage_date !== today) {
+      // 日期不同，重置使用次数
       await client
         .from('users')
-        .update({ 
-          usage_count: 0, 
-          last_usage_date: today 
+        .update({
+          usage_count: 0,
+          last_usage_date: today
         })
         .eq('id', userId);
-      user.usage_count = 0;
+      currentUsageCount = 0;  // 更新本地计数
     }
 
     // 检查使用次数限制
@@ -53,10 +54,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 增加使用次数
+    const newUsageCount = currentUsageCount + 1;
     const { error: updateError } = await client
       .from('users')
-      .update({ 
-        usage_count: currentUsageCount + 1 
+      .update({
+        usage_count: newUsageCount
       })
       .eq('id', userId);
 
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      usageCount: user.usage_count + 1,
+      usageCount: newUsageCount,
       usageLimit: user.usage_limit,
     });
 
